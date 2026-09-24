@@ -59,6 +59,13 @@ class Settings:
     # Reasoning effort: none|minimal|low|medium|high|xhigh|max|ultra; empty = Hermes default
     hermes_effort: str = ""
 
+    # Claude Code local CLI
+    claudecode_cli_path: str = "claude"
+    # Empty or "idk" = use whatever claude auth/settings pick
+    claudecode_default_model: str = ""
+    # Reasoning effort: low|medium|high|xhigh|max; empty = model default
+    claudecode_effort: str = ""
+
     # Logging
     log_level: str = "INFO"
 
@@ -137,6 +144,9 @@ def load_settings() -> Settings:
         hermes_cli_path=credentials.get("HERMES_CLI_PATH", "hermes"),
         hermes_default_model=credentials.get("HERMES_DEFAULT_MODEL", ""),
         hermes_effort=credentials.get("HERMES_EFFORT", "").lower(),
+        claudecode_cli_path=credentials.get("CLAUDE_CLI_PATH", "claude"),
+        claudecode_default_model=credentials.get("CLAUDE_DEFAULT_MODEL", ""),
+        claudecode_effort=credentials.get("CLAUDE_EFFORT", "").lower(),
         log_level=credentials.get("LOG_LEVEL", "INFO").upper(),
         openai_api_key=credentials.get("OPENAI_API_KEY"),
         openai_default_model=credentials.get("OPENAI_DEFAULT_MODEL", "gpt-4o"),
