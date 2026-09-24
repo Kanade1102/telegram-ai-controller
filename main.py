@@ -99,7 +99,10 @@ async def main_async() -> None:
                     await bot_app.start()
                     from bot.menu import register_commands
                     await register_commands(bot_app.bot)
-                    await bot_app.updater.start_polling(drop_pending_updates=True)
+                    await bot_app.updater.start_polling(
+                        drop_pending_updates=True,
+                        allowed_updates=["message", "callback_query"],
+                    )
                     logger.info("Telegram Bot started and polling for authorized commands.")
 
                 await stop_event.wait()

@@ -44,7 +44,7 @@ def build_bot_app() -> Application:
     if not settings.telegram_bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN is not configured! Please set it in .env or environment.")
 
-    app = ApplicationBuilder().token(settings.telegram_bot_token).build()
+    app = ApplicationBuilder().token(settings.telegram_bot_token).concurrent_updates(True).build()
 
     # Register handlers
     app.add_handler(CommandHandler("start", handle_start))

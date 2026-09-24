@@ -991,18 +991,21 @@ async def handle_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     text = info.get("text", "No progress info.")
     shot_path = info.get("screenshot_path")
 
+    # API mode never returns a browser screenshot. Capture the desktop here so
+    # /progress always answers with a picture (as the menu description says).
+    if not shot_path and session_manager.state.active_mode == "api":
+        try:
+            shot_path = await screenshot_service.capture(page=None, force_mode="desktop")
+        except Exception as e:
+            logger.warning("Desktop screenshot for API progress failed: %s", e)
+
     # If browser screenshot captured, send photo with caption or photo followed by text
     if shot_path:
         session_manager.record_screenshot(datetime.now(timezone.utc).isoformat())
         try:
+            # Plain caption: MARKDOWN parse failures must never cost the screenshot.
             with open(shot_path, "rb") as photo:
-                try:
-                    await update.effective_message.reply_photo(photo=photo, caption=text, parse_mode=ParseMode.MARKDOWN)
-                except Exception:
-                    # Caption parse failure must not cost the screenshot itself.
-                    logger.info("Caption parse failed for %s; sending photo without caption.", shot_path)
-                    with open(shot_path, "rb") as photo2:
-                        await update.effective_message.reply_photo(photo=photo2, caption="📊 AI Progress (caption parse failed)")
+                await update.effective_message.reply_photo(photo=photo, caption=text)
             await status_msg.delete()
             return
         except Exception as e:
