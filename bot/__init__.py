@@ -28,6 +28,7 @@ from bot.handlers import (
     handle_fallback,
     handle_prompt,
     handle_progress,
+    handle_shot,
     handle_last,
     handle_stop,
     handle_watch,
@@ -78,6 +79,7 @@ def build_bot_app() -> Application:
     app.add_handler(CommandHandler("promt", handle_prompt))
 
     app.add_handler(CommandHandler("progress", handle_progress))
+    app.add_handler(CommandHandler("shot", handle_shot))
     app.add_handler(CommandHandler("last", handle_last))
     app.add_handler(CommandHandler("stop", handle_stop))
     app.add_handler(CommandHandler("watch", handle_watch))

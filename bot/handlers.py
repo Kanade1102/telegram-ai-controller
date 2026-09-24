@@ -944,7 +944,13 @@ async def handle_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session_manager.record_screenshot(datetime.now(timezone.utc).isoformat())
         try:
             with open(shot_path, "rb") as photo:
-                await update.effective_message.reply_photo(photo=photo, caption=text, parse_mode=ParseMode.MARKDOWN)
+                try:
+                    await update.effective_message.reply_photo(photo=photo, caption=text, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    # Caption parse failure must not cost the screenshot itself.
+                    logger.info("Caption parse failed for %s; sending photo without caption.", shot_path)
+                    with open(shot_path, "rb") as photo2:
+                        await update.effective_message.reply_photo(photo=photo2, caption="📊 AI Progress (caption parse failed)")
             await status_msg.delete()
             return
         except Exception as e:
@@ -952,6 +958,45 @@ async def handle_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # API or fallback text
     await status_msg.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+@restricted
+async def handle_shot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Explicit screenshot command. Prefers the active browser tab (private,
+    browser-native); falls back to whole-desktop capture via grim/Wayland tools."""
+    status_msg = await update.effective_message.reply_text("📸 Taking screenshot...")
+
+    # 1. Browser tab (browser-native, privacy-preserving)
+    shot_path = None
+    try:
+        session = await browser_manager.get_active_session()
+        if session:
+            shot_path = await screenshot_service.capture(page=session["page"], force_mode="browser")
+            if shot_path:
+                provider_name = session.get("provider_name", "browser")
+                caption = f"📸 Screenshot of active AI tab ({provider_name})"
+    except Exception as e:
+        logger.warning("Browser-tab screenshot failed: %s; falling back to desktop.", e)
+
+    # 2. Desktop fallback (grim on Wayland/Hyprland)
+    if not shot_path:
+        shot_path = await screenshot_service.capture(page=None, force_mode="desktop")
+        if not shot_path:
+            await status_msg.edit_text(
+                "❌ Screenshot failed: no active browser tab and no desktop capture tool "
+                "(grim/scrot/gnome-screenshot) available."
+            )
+            return
+        caption = "📸 Screenshot (full desktop — no active browser tab found)"
+
+    session_manager.record_screenshot(datetime.now(timezone.utc).isoformat())
+    try:
+        with open(shot_path, "rb") as photo:
+            await update.effective_message.reply_photo(photo=photo, caption=caption)
+        await status_msg.delete()
+    except Exception as e:
+        logger.error("Failed to send screenshot %s: %s", shot_path, e)
+        await status_msg.edit_text("❌ Screenshot captured but Telegram upload failed. Try again.")
 
 
 @restricted

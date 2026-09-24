@@ -108,6 +108,12 @@ class ProgressService:
             f"*Latest visible text:*\n`{snippet}`"
         )
 
+        if not shot_path:
+            msg_text += (
+                "\n\n"
+                "⚠️ Screenshot unavailable (capture failed). Use `/shot` to retry."
+            )
+
         return {
             "backend": "browser",
             "status": status,
