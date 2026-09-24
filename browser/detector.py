@@ -38,6 +38,7 @@ def get_provider_display_name(provider_key: str) -> str:
         "openai": "OpenAI",
         "gemini_api": "Gemini API",
         "agy": "AGY (Antigravity)",
+        "hermes": "Hermes Agent (local CLI)",
         "openrouter": "OpenRouter",
         "9router": "9Router",
         "anthropic": "Anthropic",

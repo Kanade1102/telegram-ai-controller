@@ -52,6 +52,13 @@ class Settings:
     # Reasoning effort: low|medium|high; empty = model default
     agy_effort: str = ""
 
+    # Hermes Agent local CLI
+    hermes_cli_path: str = "hermes"
+    # Empty or "idk" = use whatever Hermes is configured with (config.yaml)
+    hermes_default_model: str = ""
+    # Reasoning effort: none|minimal|low|medium|high|xhigh|max|ultra; empty = Hermes default
+    hermes_effort: str = ""
+
     # Logging
     log_level: str = "INFO"
 
@@ -125,6 +132,9 @@ def load_settings() -> Settings:
         agy_cli_path=credentials.get("AGY_CLI_PATH", "agy"),
         agy_default_model=credentials.get("AGY_DEFAULT_MODEL", "gemini-3.8-flash-low"),
         agy_effort=credentials.get("AGY_EFFORT", "").lower(),
+        hermes_cli_path=credentials.get("HERMES_CLI_PATH", "hermes"),
+        hermes_default_model=credentials.get("HERMES_DEFAULT_MODEL", ""),
+        hermes_effort=credentials.get("HERMES_EFFORT", "").lower(),
         log_level=credentials.get("LOG_LEVEL", "INFO").upper(),
         openai_api_key=credentials.get("OPENAI_API_KEY"),
         openai_default_model=credentials.get("OPENAI_DEFAULT_MODEL", "gpt-4o"),
