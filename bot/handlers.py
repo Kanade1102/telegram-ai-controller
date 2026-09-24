@@ -3,10 +3,7 @@
 import asyncio
 import json
 import logging
-import os
-import shutil
 import sqlite3
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -216,47 +213,71 @@ async def handle_usage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     lines = ["📊 *9Router Usage* (live)\n"]
 
-    # 9Router local proxy stats — read straight from its SQLite (same data as
-    # the dashboard's Usage page). Read-only copy avoids WAL conflicts.
+    # 9Router local proxy stats — replicate the dashboard's Usage page exactly:
+    # live scan of usageHistory since local midnight, tokens parsed from the
+    # `tokens` JSON column (not the usageDaily bucket, which lags behind).
     try:
         src = Path(settings.router9_db_path).expanduser()
         if src.is_file():
-            tmp = Path(tempfile.gettempdir()) / f"9r_usage_{os.getpid()}.sqlite"
-            shutil.copy2(src, tmp)
-            conn = sqlite3.connect(str(tmp))
+            # Read-only URI connection sees WAL writes (plain copy would miss them).
+            conn = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
             try:
-                # Today + totals by provider
-                row = conn.execute(
-                    "SELECT dateKey, data FROM usageDaily ORDER BY dateKey DESC LIMIT 1"
-                ).fetchone()
-                if row:
-                    d = json.loads(row["data"])
-                    lines.append(
-                        f"*Today ({row['dateKey']}):*\n"
-                        f"Requests: {d.get('requests', 0):,}\n"
-                        f"Input tokens: {d.get('promptTokens', 0):,}\n"
-                        f"Cached tokens: {d.get('cachedTokens', 0):,}\n"
-                        f"Output tokens: {d.get('completionTokens', 0):,}\n"
-                        f"Est. cost: ~${d.get('cost', 0):.4f}\n"
+                local_midnight = datetime.now().astimezone().replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                cutoff = local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                rows = conn.execute(
+                    "SELECT provider, promptTokens, completionTokens, cost, tokens "
+                    "FROM usageHistory WHERE timestamp >= ?",
+                    (cutoff,),
+                ).fetchall()
+                tot = {"req": 0, "in": 0, "out": 0, "cached": 0, "cost": 0.0}
+                by_prov: dict[str, dict] = {}
+                for r in rows:
+                    try:
+                        t = json.loads(r["tokens"]) if r["tokens"] else {}
+                    except (ValueError, TypeError):
+                        t = {}
+                    p = t.get("prompt_tokens") or t.get("input_tokens") or r["promptTokens"] or 0
+                    o = t.get("completion_tokens") or t.get("output_tokens") or r["completionTokens"] or 0
+                    c = t.get("cached_tokens") or t.get("cache_read_input_tokens") or 0
+                    cost = r["cost"] or 0
+                    prov = r["provider"] or "unknown"
+                    tot["req"] += 1
+                    tot["in"] += p
+                    tot["out"] += o
+                    tot["cached"] += c
+                    tot["cost"] += cost
+                    b = by_prov.setdefault(
+                        prov, {"req": 0, "in": 0, "out": 0, "cached": 0, "cost": 0.0}
                     )
-                    by_prov = d.get("byProvider", {})
-                    if by_prov:
-                        lines.append("\n*By provider (today):*")
-                        for prov_name, pdata in sorted(
-                            by_prov.items(),
-                            key=lambda kv: kv[1].get("requests", 0),
-                            reverse=True,
-                        ):
-                            lines.append(
-                                f"• {prov_name}: {pdata.get('requests', 0):,} req | "
-                                f"{pdata.get('promptTokens', 0):,} in | "
-                                f"{pdata.get('completionTokens', 0):,} out | "
-                                f"~${pdata.get('cost', 0):.4f}"
-                            )
+                    b["req"] += 1
+                    b["in"] += p
+                    b["out"] += o
+                    b["cached"] += c
+                    b["cost"] += cost
+                lines.append(
+                    f"*Today (local):*\n"
+                    f"Requests: {tot['req']:,}\n"
+                    f"Input tokens: {tot['in']:,}\n"
+                    f"Cached tokens: {tot['cached']:,}\n"
+                    f"Output tokens: {tot['out']:,}\n"
+                    f"Est. cost: ~${tot['cost']:.4f}\n"
+                )
+                if by_prov:
+                    lines.append("\n*By provider (today):*")
+                    for prov_name, pdata in sorted(
+                        by_prov.items(), key=lambda kv: kv[1]["req"], reverse=True
+                    ):
+                        lines.append(
+                            f"• {prov_name}: {pdata['req']:,} req | "
+                            f"{pdata['in']:,} in | "
+                            f"{pdata['out']:,} out | "
+                            f"~${pdata['cost']:.4f}"
+                        )
             finally:
                 conn.close()
-                tmp.unlink(missing_ok=True)
         else:
             lines.append("(9Router DB not found)")
     except Exception as e:
