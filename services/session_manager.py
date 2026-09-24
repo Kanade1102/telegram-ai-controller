@@ -21,7 +21,7 @@ class SessionState:
     active_provider: str = "chatgpt_web"
     active_browser_tab_id: Optional[str] = None
     active_conversation_id: Optional[int] = None
-    active_fallback_chain: Optional[str] = "coding"
+    active_fallback_chain: Optional[str] = None
     last_prompt: str = ""
     last_prompt_time: str = ""
     last_known_response: str = ""
@@ -46,7 +46,7 @@ class SessionManager:
                         active_provider=data.get("active_provider", "chatgpt_web"),
                         active_browser_tab_id=data.get("active_browser_tab_id"),
                         active_conversation_id=data.get("active_conversation_id"),
-                        active_fallback_chain=data.get("active_fallback_chain", "coding"),
+                        active_fallback_chain=data.get("active_fallback_chain"),
                         last_prompt=data.get("last_prompt", ""),
                         last_prompt_time=data.get("last_prompt_time", ""),
                         last_known_response=data.get("last_known_response", ""),

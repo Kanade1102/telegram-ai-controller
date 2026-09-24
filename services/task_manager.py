@@ -94,19 +94,33 @@ class TaskManager:
             self._active_task.status = TaskStatus.GENERATING
 
     def complete_task(self, task_id: str, final_output: Optional[str] = None, usage: Optional[dict] = None) -> None:
+        # Accept completion for tasks that were detached by cancel (kept in _history)
+        task = next((t for t in self._history if t.id == task_id), None)
+        if task is None:
+            return
         if self._active_task and self._active_task.id == task_id:
-            self._active_task.status = TaskStatus.COMPLETE
-            if final_output is not None:
-                self._active_task.latest_output = final_output
-            if usage:
-                self._active_task.usage = usage
             self._active_task = None
+        if task.status == TaskStatus.CANCELLED:
+            # Cancelled task: keep CANCELLED status, just attach final partial output
+            if final_output is not None:
+                task.latest_output = final_output
+            return
+        task.status = TaskStatus.COMPLETE
+        if final_output is not None:
+            task.latest_output = final_output
+        if usage:
+            task.usage = usage
 
     def fail_task(self, task_id: str, error: str) -> None:
+        task = next((t for t in self._history if t.id == task_id), None)
+        if task is None:
+            return
         if self._active_task and self._active_task.id == task_id:
-            self._active_task.status = TaskStatus.ERROR
-            self._active_task.error = error
             self._active_task = None
+        if task.status == TaskStatus.CANCELLED:
+            return
+        task.status = TaskStatus.ERROR
+        task.error = error
 
     def cancel_active_task(self) -> bool:
         if self._active_task and self._active_task.status in (TaskStatus.CONNECTING, TaskStatus.GENERATING):

@@ -181,11 +181,13 @@ You will see the startup self-test output:
 ### Providers, Modes & Models
 | Command | Description |
 |---|---|
-| `/providers` | Show all available browser and API backends |
+| `/providers` | Show all available browser and API backends with live availability |
 | `/mode [browser\|api\|auto]` | Switch mode between browser automation, API, or auto-fallback |
+| `/api` | Shortcut for `/mode api` |
+| `/web` | Shortcut for `/mode browser` |
 | `/provider <name>` | Set active provider (`chatgpt_web`, `gemini_web`, `openai`, `openrouter`, `9router`, etc.) |
 | `/models [provider] [refresh]` | Query available models from the provider |
-| `/model <model-id\|alias>` | Set model (supports aliases like `/model coding`) |
+| `/model <model-id\|alias>` | Set model for active provider; `/model <provider>/<model-id>` sets both (e.g. `/model openrouter/meta-llama/...`) |
 
 ### Prompts, Progress & Control
 | Command | Description |

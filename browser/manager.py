@@ -53,20 +53,19 @@ class BrowserManager:
 
     async def disconnect(self) -> None:
         async with self._lock:
-            try:
-                if self._browser:
-                    await self._browser.close()
-            except Exception as e:
-                logger.debug("Error closing browser connection: %s", e)
-            finally:
-                self._browser = None
-            try:
-                if self._playwright:
-                    await self._playwright.stop()
-            except Exception as e:
-                logger.debug("Error stopping playwright: %s", e)
-            finally:
-                self._playwright = None
+            browser, playwright = self._browser, self._playwright
+            self._browser = None
+            self._playwright = None
+            if browser:
+                try:
+                    await browser.close()
+                except Exception as e:
+                    logger.debug("Error closing browser connection: %s", e)
+            if playwright:
+                try:
+                    await playwright.stop()
+                except Exception as e:
+                    logger.debug("Error stopping playwright: %s", e)
 
     async def get_all_pages(self) -> list[Page]:
         """Get all open pages across all contexts."""

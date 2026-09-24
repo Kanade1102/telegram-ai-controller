@@ -11,6 +11,8 @@ def test_session_state_defaults(tmp_path: Path):
     mgr = SessionManager(state_file=state_file)
     assert mgr.state.active_mode in ("browser", "api", "auto")
     assert mgr.state.last_status == "IDLE"
+    # Fallback must be OFF by default (never silently route to third-party APIs)
+    assert mgr.state.active_fallback_chain is None
 
 
 def test_session_state_save_and_reload(tmp_path: Path):

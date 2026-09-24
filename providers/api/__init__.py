@@ -79,6 +79,9 @@ class APIProviderRegistry:
 
 registry = APIProviderRegistry()
 
+# Cached startup/live health results: provider_name -> (success, message, latency_ms)
+health_cache: dict[str, tuple[bool, str, float]] = {}
+
 
 def get_api_provider(name: str) -> Optional[APIProvider]:
     return registry.get(name)

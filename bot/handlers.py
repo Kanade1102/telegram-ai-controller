@@ -23,7 +23,7 @@ from browser.manager import browser_manager
 from browser.detector import ProgressState, get_provider_display_name
 from providers import get_provider
 from providers.browser import BROWSER_PROVIDERS, get_browser_provider_by_name
-from providers.api import list_api_providers, get_api_provider
+from providers.api import list_api_providers, get_api_provider, health_cache
 from providers.api.base import APIError, AuthError, RateLimitError, ServerError
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,16 @@ def extract_prompt_text(full_text: str) -> str:
     if len(lines) > 1:
         return lines[1]
     return ""
+
+
+def truncate_response(text: str) -> str:
+    """Keep Telegram messages under the 4096-char limit without cutting mid-word."""
+    if not text:
+        return text
+    limit = settings.response_char_limit
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n…[truncated]"
 
 
 # ==============================================================================
@@ -71,6 +81,8 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "*Provider & Mode*\n"
         "• `/providers` — List browser & API backends\n"
         "• `/mode [browser|api|auto]` — Switch execution mode\n"
+        "• `/api` — Shortcut: switch to API mode\n"
+        "• `/web` — Shortcut: switch to browser mode\n"
         "• `/provider <name>` — Select active AI provider\n"
         "• `/login <chatgpt|gemini>` — Open browser login tab\n\n"
         "*Models*\n"
@@ -104,17 +116,31 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     cdp_connected = await browser_manager.is_connected()
     browser_status_str = "Connected" if cdp_connected else "Disconnected"
 
-    # Browser accounts
+    # Browser accounts: real per-site check when CDP is up, else ⚪ unknown
     browser_lines = []
-    for b_key, b_prov in BROWSER_PROVIDERS.items():
-        browser_lines.append(f"{b_prov.friendly_name} ✅")
-    browser_accs = "\n".join(browser_lines)
+    if cdp_connected:
+        ai_tabs = await browser_manager.get_ai_sessions()
+        tab_providers = {s["provider_key"] for s in ai_tabs}
+        for b_key, b_prov in BROWSER_PROVIDERS.items():
+            icon = "✅" if b_key in tab_providers else "🔴"
+            browser_lines.append(f"{b_prov.friendly_name} {icon}")
+    else:
+        for b_key, b_prov in BROWSER_PROVIDERS.items():
+            browser_lines.append(f"{b_prov.friendly_name} ⚪")
+    browser_accs = "\n".join(browser_lines) or "No browser providers"
 
-    # API providers
+    # API providers: cached startup health (no live calls here; /health does live)
     api_lines = []
     for a_prov in list_api_providers():
-        api_lines.append(f"{a_prov.friendly_name} ✅")
-    api_provs = "\n".join(api_lines)
+        icon = "⚪"
+        if not a_prov.api_key and "127.0.0.1" not in getattr(a_prov, "base_url", "") and "localhost" not in getattr(a_prov, "base_url", ""):
+            icon = "🔴"  # no key configured
+        elif a_prov.name in health_cache and health_cache[a_prov.name][0]:
+            icon = "✅"
+        elif a_prov.name in health_cache:
+            icon = "🔴"
+        api_lines.append(f"{a_prov.friendly_name} {icon}")
+    api_provs = "\n".join(api_lines) or "No API providers"
 
     # Active conversation name
     conv_name = "N/A"
@@ -152,11 +178,14 @@ async def handle_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     for prov in list_api_providers():
         try:
             h = await prov.health()
-            icon = "✅" if h["status"] == "AVAILABLE" else "🔴"
+            success = h["status"] == "AVAILABLE"
+            health_cache[prov.name] = (success, h.get("message", ""), h.get("latency_ms", 0.0))
+            icon = "✅" if success else "🔴"
             latency = f"{h['latency_ms']:.0f} ms" if h["latency_ms"] > 0 else "N/A"
             lines.append(f"*{prov.friendly_name}*")
             lines.append(f"{icon} {h['status']} ({latency})\n")
         except Exception as e:
+            health_cache[prov.name] = (False, str(e), 0.0)
             lines.append(f"*{prov.friendly_name}*\n🔴 Error: {e}\n")
 
     # Browser status
@@ -197,13 +226,24 @@ async def handle_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     cdp_conn = await browser_manager.is_connected()
 
     browser_lines = []
-    for k, p in BROWSER_PROVIDERS.items():
-        icon = "🟢" if cdp_conn else "⚪"
-        browser_lines.append(f"{icon} {p.friendly_name} (`{k}`)")
+    if cdp_conn:
+        ai_tabs = await browser_manager.get_ai_sessions()
+        tab_providers = {s["provider_key"] for s in ai_tabs}
+        for k, p in BROWSER_PROVIDERS.items():
+            icon = "🟢" if k in tab_providers else "🔴"
+            browser_lines.append(f"{icon} {p.friendly_name} (`{k}`)")
+    else:
+        for k, p in BROWSER_PROVIDERS.items():
+            browser_lines.append(f"⚪ {p.friendly_name} (`{k}`)")
 
     api_lines = []
     for p in list_api_providers():
-        api_lines.append(f"🟢 {p.friendly_name} (`{p.name}`)")
+        icon = "⚪"
+        if p.name in health_cache:
+            icon = "🟢" if health_cache[p.name][0] else "🔴"
+        elif not getattr(p, "api_key", "") and "127.0.0.1" not in getattr(p, "base_url", "") and "localhost" not in getattr(p, "base_url", ""):
+            icon = "🔴"
+        api_lines.append(f"{icon} {p.friendly_name} (`{p.name}`)")
 
     current_m = model_manager.get_selected_model(state.active_provider)
 
@@ -234,6 +274,26 @@ async def handle_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     session_manager.set_mode(new_mode)
     await update.effective_message.reply_text(f"✅ Mode changed to: `{new_mode.upper()}`", parse_mode=ParseMode.MARKDOWN)
+
+
+@restricted
+async def handle_mode_api(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Shortcut: switch to API mode (same as /mode api)."""
+    session_manager.set_mode("api")
+    await update.effective_message.reply_text(
+        "✅ Mode set to *API*. `/prompt` will use direct API providers.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+@restricted
+async def handle_mode_web(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Shortcut: switch to browser mode (same as /mode browser)."""
+    session_manager.set_mode("browser")
+    await update.effective_message.reply_text(
+        "✅ Mode set to *BROWSER*. `/prompt` will drive your browser AI tabs.",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 
 @restricted
@@ -434,6 +494,19 @@ async def handle_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     target = args[0].strip()
+
+    # Syntax: /model <provider>/<model-id>  e.g. /model openrouter/meta-llama/...
+    if "/" in target and not target.lower().startswith(("models/", "gpt-", "claude-", "gemini-", "o1", "o3", "o4", "deepseek-", "llama")):
+        prov_part, _, model_part = target.partition("/")
+        prov_obj = get_provider(prov_part)
+        if prov_obj and model_part:
+            session_manager.set_provider(prov_obj.name)
+            model_manager.set_selected_model(prov_obj.name, model_part)
+            await update.effective_message.reply_text(
+                f"✅ Switched to *{prov_obj.friendly_name}*\nModel set to:\n`{model_part}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
 
     # Check alias
     alias_match = model_manager.resolve_alias(target)
@@ -721,9 +794,11 @@ async def execute_api_prompt(update: Update, prompt_text: str) -> None:
             last_edit_time = time.time()
             edit_interval = settings.telegram_stream_update_interval
             current_telegram_msg = initial_msg
+            cancelled = False
 
             async for chunk in api_prov.send_message(history, model=model_name, stream=True):
                 if task.cancel_requested:
+                    cancelled = True
                     break
 
                 collected_text += chunk
@@ -753,6 +828,17 @@ async def execute_api_prompt(update: Update, prompt_text: str) -> None:
                     await current_telegram_msg.edit_text(collected_text)
                 except Exception:
                     pass
+
+            if cancelled:
+                # User pressed /stop mid-stream: keep partial text, don't mark complete
+                task_manager.complete_task(task.id, final_output=collected_text)
+                if collected_text.strip():
+                    conversation_manager.add_assistant_message(conv_id, collected_text + "\n[stopped]")
+                try:
+                    await update.effective_message.reply_text("🛑 Generation stopped.")
+                except Exception:
+                    pass
+                return
 
             # Record usage & message
             usage = await api_prov.get_usage()
@@ -836,7 +922,7 @@ async def handle_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             for m in reversed(history):
                 if m["role"] == "assistant":
                     await update.effective_message.reply_text(
-                        f"💬 *Latest AI Response:*\n\n{m['content']}"
+                        f"💬 *Latest AI Response:*\n\n{truncate_response(m['content'])}"
                     )
                     return
         await update.effective_message.reply_text("No responses found in current conversation.")
@@ -853,7 +939,9 @@ async def handle_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     last_text = await provider.get_last_response(page)
 
     if last_text:
-        await update.effective_message.reply_text(f"💬 *Latest visible response from {session['provider_name']}:*\n\n{last_text}")
+        await update.effective_message.reply_text(
+            f"💬 *Latest visible response from {session['provider_name']}:*\n\n{truncate_response(last_text)}"
+        )
     else:
         await update.effective_message.reply_text(f"No visible response text found on {session['provider_name']} page.")
 

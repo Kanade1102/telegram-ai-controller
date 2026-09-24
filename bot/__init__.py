@@ -11,6 +11,8 @@ from bot.handlers import (
     handle_usage,
     handle_providers,
     handle_mode,
+    handle_mode_api,
+    handle_mode_web,
     handle_provider,
     handle_login,
     handle_sessions,
@@ -50,6 +52,8 @@ def build_bot_app() -> Application:
 
     app.add_handler(CommandHandler("providers", handle_providers))
     app.add_handler(CommandHandler("mode", handle_mode))
+    app.add_handler(CommandHandler("api", handle_mode_api))
+    app.add_handler(CommandHandler("web", handle_mode_web))
     app.add_handler(CommandHandler("provider", handle_provider))
     app.add_handler(CommandHandler("login", handle_login))
 

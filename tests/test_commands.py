@@ -56,3 +56,19 @@ def test_model_alias_resolution():
     assert model_manager.resolve_alias("coding") == ("openrouter", "meta-llama/llama-3.3-70b-instruct")
     assert model_manager.resolve_alias("fast") == ("gemini_api", "gemini-1.5-flash")
     assert model_manager.resolve_alias("nonexistent") is None
+
+
+def test_truncate_response_limits_length():
+    from bot.handlers import truncate_response
+    from config import settings as cfg
+
+    cfg.response_char_limit = 100
+    long_text = "x" * 500
+    out = truncate_response(long_text)
+    assert len(out) <= 120
+    assert "[truncated]" in out
+    assert truncate_response("short") == "short"
+    assert truncate_response("") == ""
+
+    cfg.response_char_limit = 0
+    assert truncate_response(long_text) == long_text

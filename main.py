@@ -10,7 +10,7 @@ from services.credential_manager import mask_secret
 from browser.manager import browser_manager
 from web.server import start_web_server
 from bot import build_bot_app
-from providers.api import list_api_providers
+from providers.api import list_api_providers, health_cache
 
 # Configure structured logging
 logging.basicConfig(
@@ -51,10 +51,15 @@ async def run_self_test() -> None:
     # API Providers check
     for prov in list_api_providers():
         try:
-            success, msg, latency = await prov.test_connection()
+            h = await prov.health()
+            success = h["status"] == "AVAILABLE"
+            msg = h.get("message", h["status"])
+            latency = h.get("latency_ms", 0.0)
+            health_cache[prov.name] = (success, msg, latency)
             status = "AVAILABLE" if success else "UNAVAILABLE"
             logger.info("Provider [%s]: %s (latency: %.0fms, info: %s)", prov.name, status, latency, msg)
         except Exception as e:
+            health_cache[prov.name] = (False, str(e), 0.0)
             logger.info("Provider [%s]: UNAVAILABLE (%s)", prov.name, e)
 
 
@@ -108,6 +113,13 @@ async def main_async() -> None:
                     pass
 
     finally:
+        # Suppress benign playwright driver-pipe warnings during teardown
+        loop = asyncio.get_running_loop()
+
+        def _quiet_handler(_loop, ctx):
+            logger.debug("Async loop exception during shutdown: %s", ctx.get("message"))
+
+        loop.set_exception_handler(_quiet_handler)
         logger.info("Stopping bot...")
         try:
             if bot_app.updater and bot_app.updater.running:

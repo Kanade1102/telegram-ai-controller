@@ -30,8 +30,11 @@ class Settings:
     default_provider: str = "chatgpt_web"
 
     # Screenshots
-    screenshot_mode: str = "browser"  # "browser", "window", "desktop"
+    # browser/window/desktop as before, plus "off" disables screenshots entirely
+    screenshot_mode: str = "browser"
     screenshot_dir: Path = SCREENSHOTS_DIR
+    # max visible-response chars sent via Telegram (0 = unlimited)
+    response_char_limit: int = 3900
 
     # Streaming and Cache
     telegram_stream_update_interval: float = 1.5
@@ -106,6 +109,7 @@ def load_settings() -> Settings:
         default_provider=credentials.get("DEFAULT_PROVIDER", "chatgpt_web").lower(),
         screenshot_mode=credentials.get("SCREENSHOT_MODE", "browser").lower(),
         screenshot_dir=screenshot_path,
+        response_char_limit=int(credentials.get("RESPONSE_CHAR_LIMIT", "3900")),
         telegram_stream_update_interval=float(credentials.get("TELEGRAM_STREAM_UPDATE_INTERVAL", "1.5")),
         model_cache_seconds=int(credentials.get("MODEL_CACHE_SECONDS", "1800")),
         local_server_enabled=credentials.get("LOCAL_SERVER_ENABLED", "true").lower() in ("true", "1", "yes"),
@@ -115,7 +119,7 @@ def load_settings() -> Settings:
         openai_api_key=credentials.get("OPENAI_API_KEY"),
         openai_default_model=credentials.get("OPENAI_DEFAULT_MODEL", "gpt-4o"),
         gemini_api_key=credentials.get("GEMINI_API_KEY"),
-        gemini_default_model=credentials.get("GEMINI_DEFAULT_MODEL", "gemini-1.5-flash"),
+        gemini_default_model=credentials.get("GEMINI_DEFAULT_MODEL", "gemini-3.6-flash"),
         openrouter_api_key=credentials.get("OPENROUTER_API_KEY"),
         openrouter_base_url=credentials.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         openrouter_default_model=credentials.get("OPENROUTER_DEFAULT_MODEL", "meta-llama/llama-3.3-70b-instruct"),
