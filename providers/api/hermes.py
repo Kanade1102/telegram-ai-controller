@@ -131,6 +131,10 @@ class HermesCLIProvider(APIProvider):
             "--oneshot",
             "--format", "stream-json",
             "--no-restore-cwd",
+            # Bound the agent loop for chat: few tool turns, hard run budget.
+            # A simple question must not become a 9-tool-turn exploration.
+            "--max-turns", "4",
+            "--run-budget", "300",
         ]
         if model and model not in ("idk", "default"):
             args += [f"--model={model}"]
