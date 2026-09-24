@@ -135,6 +135,9 @@ class HermesCLIProvider(APIProvider):
             # (terminal, web, skills) and the user sees "progress" instead of
             # an answer. -t "" = answer directly.
             "-t", "",
+            # Light mode: skip AGENTS.md / SOUL.md / memory / skill preloads —
+            # nothing needed for plain chat, saves startup time and RAM.
+            "--ignore-rules",
             # Safety net if a future flag re-enables tools.
             "--max-turns", "4",
             "--run-budget", "300",
