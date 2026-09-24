@@ -8,6 +8,7 @@ from providers.api.openai_compatible import OpenAICompatibleProvider
 from providers.api.openai import OpenAIProvider
 from providers.api.gemini import GeminiAPIProvider
 from providers.api.anthropic import AnthropicProvider
+from providers.api.agy import AgyCLIProvider
 from providers.api.presets.openrouter import OpenRouterProvider
 from providers.api.presets.router9 import Router9Provider
 from providers.api.presets.deepseek import DeepSeekAPIProvider
@@ -29,6 +30,7 @@ class APIProviderRegistry:
         # Built-in providers
         self.register(OpenAIProvider())
         self.register(GeminiAPIProvider())
+        self.register(AgyCLIProvider())
         self.register(OpenRouterProvider())
         if settings.router9_enabled:
             self.register(Router9Provider())

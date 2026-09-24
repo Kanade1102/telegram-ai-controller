@@ -133,7 +133,9 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     api_lines = []
     for a_prov in list_api_providers():
         icon = "⚪"
-        if not a_prov.api_key and "127.0.0.1" not in getattr(a_prov, "base_url", "") and "localhost" not in getattr(a_prov, "base_url", ""):
+        no_key = not getattr(a_prov, "api_key", "")
+        local_url = "127.0.0.1" in getattr(a_prov, "base_url", "") or "localhost" in getattr(a_prov, "base_url", "")
+        if no_key and not local_url and a_prov.name != "agy":
             icon = "🔴"  # no key configured
         elif a_prov.name in health_cache and health_cache[a_prov.name][0]:
             icon = "✅"
@@ -241,8 +243,11 @@ async def handle_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         icon = "⚪"
         if p.name in health_cache:
             icon = "🟢" if health_cache[p.name][0] else "🔴"
-        elif not getattr(p, "api_key", "") and "127.0.0.1" not in getattr(p, "base_url", "") and "localhost" not in getattr(p, "base_url", ""):
-            icon = "🔴"
+        else:
+            no_key = not getattr(p, "api_key", "")
+            local_url = "127.0.0.1" in getattr(p, "base_url", "") or "localhost" in getattr(p, "base_url", "")
+            if no_key and not local_url and p.name != "agy":
+                icon = "🔴"
         api_lines.append(f"{icon} {p.friendly_name} (`{p.name}`)")
 
     current_m = model_manager.get_selected_model(state.active_provider)

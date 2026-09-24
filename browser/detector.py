@@ -37,6 +37,7 @@ def get_provider_display_name(provider_key: str) -> str:
         "deepseek_web": "DeepSeek Web",
         "openai": "OpenAI",
         "gemini_api": "Gemini API",
+        "agy": "AGY (Antigravity)",
         "openrouter": "OpenRouter",
         "9router": "9Router",
         "anthropic": "Anthropic",

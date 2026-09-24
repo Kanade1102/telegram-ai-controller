@@ -97,6 +97,8 @@ async def main_async() -> None:
                     logger.info("Connecting to Telegram...")
                     await bot_app.initialize()
                     await bot_app.start()
+                    from bot.menu import register_commands
+                    await register_commands(bot_app.bot)
                     await bot_app.updater.start_polling(drop_pending_updates=True)
                     logger.info("Telegram Bot started and polling for authorized commands.")
 
