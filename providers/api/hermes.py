@@ -131,8 +131,11 @@ class HermesCLIProvider(APIProvider):
             "--oneshot",
             "--format", "stream-json",
             "--no-restore-cwd",
-            # Bound the agent loop for chat: few tool turns, hard run budget.
-            # A simple question must not become a 9-tool-turn exploration.
+            # Pure chat: NO toolsets. With tools enabled Hermes explores
+            # (terminal, web, skills) and the user sees "progress" instead of
+            # an answer. -t "" = answer directly.
+            "-t", "",
+            # Safety net if a future flag re-enables tools.
             "--max-turns", "4",
             "--run-budget", "300",
         ]
