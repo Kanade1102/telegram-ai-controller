@@ -141,7 +141,9 @@ class HermesCLIProvider(APIProvider):
             self.cli_path, *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            # Hermes writes its logs to stderr; never PIPE it — an unread full
+            # buffer blocks Hermes mid-stream (classic subprocess deadlock).
+            stderr=asyncio.subprocess.DEVNULL,
         )
         assert proc.stdin is not None
         proc.stdin.write(prompt_text.encode("utf-8"))
@@ -188,20 +190,31 @@ class HermesCLIProvider(APIProvider):
                     return
         except asyncio.TimeoutError:
             proc.kill()
-            await proc.communicate()
+            await self._bounded_wait(proc)
             raise APIError(f"hermes timed out after {HERMES_TURN_TIMEOUT}s", provider=self.name)
+        except GeneratorExit:
+            # Consumer stopped iterating (e.g. /stop mid-stream). Kill now —
+            # never block on proc.wait() for a process that may run minutes.
+            proc.kill()
+            await self._bounded_wait(proc)
+            raise
         finally:
+            if proc.returncode is None:
+                await self._bounded_wait(proc)
+
+        if proc.returncode not in (0, None) and not emitted:
+            raise APIError(f"hermes failed: exit code {proc.returncode}", provider=self.name)
+
+    @staticmethod
+    async def _bounded_wait(proc: asyncio.subprocess.Process, timeout: float = 10.0) -> None:
+        """Wait for process exit with a hard cap so cleanup never hangs."""
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=timeout)
+        except (asyncio.TimeoutError, Exception):
             try:
-                await proc.wait()
+                proc.kill()
             except Exception:
                 pass
-
-        stderr = (await proc.stderr.read()).decode("utf-8", "replace") if proc.stderr else ""
-        if proc.returncode not in (0, None) and not emitted:
-            err_s = stderr.strip()
-            if "auth" in err_s.lower() or "login" in err_s.lower() or "unauthorized" in err_s.lower():
-                raise AuthError(f"hermes authentication issue: {err_s[:120]}", provider=self.name)
-            raise APIError(f"hermes failed: {err_s[:120] or 'unknown error'}", provider=self.name)
 
     async def get_usage(self) -> dict[str, Any]:
         # stream-json result carries real tokens; zeros when absent. Never invent.

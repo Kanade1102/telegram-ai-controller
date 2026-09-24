@@ -153,7 +153,8 @@ class AgyCLIProvider(APIProvider):
             "--output-format=stream-json",
             *((f"--effort={effort}",) if effort else ()),
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            # Never PIPE stderr — an unread full buffer blocks agy mid-stream.
+            stderr=asyncio.subprocess.DEVNULL,
         )
 
         emitted = False
@@ -207,23 +208,31 @@ class AgyCLIProvider(APIProvider):
                     return
         except asyncio.TimeoutError:
             proc.kill()
-            await proc.communicate()
+            await self._bounded_wait(proc)
             raise APIError(f"agy timed out after {AGY_TURN_TIMEOUT}s", provider=self.name)
+        except GeneratorExit:
+            # Consumer stopped iterating (e.g. /stop mid-stream). Kill now —
+            # never block on proc.wait() for a process that may run minutes.
+            proc.kill()
+            await self._bounded_wait(proc)
+            raise
         finally:
-            # drain pipes to avoid resource warnings
+            if proc.returncode is None:
+                await self._bounded_wait(proc)
+
+        if proc.returncode not in (0, None) and not emitted:
+            raise APIError(f"agy failed: exit code {proc.returncode}", provider=self.name)
+
+    @staticmethod
+    async def _bounded_wait(proc: asyncio.subprocess.Process, timeout: float = 10.0) -> None:
+        """Wait for process exit with a hard cap so cleanup never hangs."""
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=timeout)
+        except (asyncio.TimeoutError, Exception):
             try:
-                await proc.wait()
+                proc.kill()
             except Exception:
                 pass
-
-        stderr = (await proc.stderr.read()).decode("utf-8", "replace") if proc.stderr else ""
-        if proc.returncode not in (0, None) and not emitted:
-            err_s = stderr.strip()
-            if "eligibility" in err_s.lower() or "503" in err_s or "unavailable" in err_s.lower():
-                raise APIError("Antigravity service unavailable", provider=self.name)
-            if "auth" in err_s.lower() or "login" in err_s.lower():
-                raise AuthError(f"agy authentication issue: {err_s[:120]}", provider=self.name)
-            raise APIError(f"agy failed: {err_s[:120] or 'unknown error'}", provider=self.name)
 
     async def get_usage(self) -> dict[str, Any]:
         # agy stream-json reports real usage; zeros when absent. Never invent.
