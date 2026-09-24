@@ -8,6 +8,7 @@ from services.screenshot import screenshot_service
 from services.task_manager import task_manager, TaskStatus
 from services.session_manager import session_manager
 from services.model_manager import model_manager
+from services import claude_local
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,20 @@ class ProgressService:
         # 1. API Backend Progress
         if state.active_mode == "api" or (active_task and active_task.backend == "api"):
             if not active_task:
+                # No bot-owned task: check for a local interactive Claude Code
+                # session the user runs on the PC (excludes the bot's own -p runs).
+                try:
+                    cl_info = claude_local.get_local_claude_session()
+                except Exception as e:
+                    logger.warning("Local claude session check failed: %s", e)
+                    cl_info = None
+                if cl_info:
+                    return {
+                        "backend": "claude_local",
+                        "status": cl_info["status"],
+                        "screenshot_path": None,
+                        "text": claude_local.format_local_claude(cl_info),
+                    }
                 return {
                     "backend": "api",
                     "status": "IDLE",
