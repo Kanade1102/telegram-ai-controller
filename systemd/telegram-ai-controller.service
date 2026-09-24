@@ -1,0 +1,16 @@
+[Unit]
+Description=Telegram AI Controller Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/telegram-ai-controller
+EnvironmentFile=%h/telegram-ai-controller/.env
+ExecStart=%h/telegram-ai-controller/.venv/bin/python main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

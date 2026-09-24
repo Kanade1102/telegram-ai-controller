@@ -1,0 +1,34 @@
+# Configuration for Telegram AI Controller providers, fallback chains, and model aliases.
+# Generic third-party OpenAI-compatible APIs can be added here without modifying Python source code.
+
+fallback_chains:
+  coding:
+    - openai
+    - openrouter
+    - 9router
+  browser:
+    - chatgpt_web
+    - gemini_web
+  general:
+    - gemini_api
+    - openrouter
+
+aliases:
+  coding:
+    provider: openrouter
+    model: meta-llama/llama-3.3-70b-instruct
+  fast:
+    provider: gemini_api
+    model: gemini-3.6-flash
+
+# Dynamic OpenAI-compatible providers.
+# These will be registered automatically alongside built-in providers.
+# Security Note: Reference environment variable names via `api_key_env`. Never put raw keys here.
+providers:
+  # Example: Local LM Studio / vLLM / Ollama
+  local_lmstudio:
+    type: openai_compatible
+    base_url: http://127.0.0.1:1234/v1
+    api_key_env: LOCAL_LMSTUDIO_API_KEY
+    default_model: local-model
+    timeout: 60.0
