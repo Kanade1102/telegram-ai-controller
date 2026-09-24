@@ -87,7 +87,8 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "• `/login <chatgpt|gemini>` — Open browser login tab\n\n"
         "*Models*\n"
         "• `/models [provider] [refresh]` — List models for provider\n"
-        "• `/model <model-id|alias>` — Set model for active provider\n\n"
+        "• `/model <model-id|alias>` — Set model for active provider\n"
+        "• `/effort [low|medium|high|off]` — Reasoning effort (AGY)\n\n"
         "*Prompts & Generation*\n"
         "• `/prompt <text>` (or `/promt`) — Send prompt to active backend\n"
         "• `/progress` — Check active activity & screenshot\n"
@@ -159,6 +160,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"*Mode:*\n{state.active_mode.upper()}\n\n"
         f"*Backend:*\n{get_provider_display_name(state.active_provider)}\n\n"
         f"*Model:*\n`{model_manager.get_selected_model(state.active_provider) or 'default'}`\n\n"
+        f"*Effort:*\n`{state.active_effort or 'default'}`\n\n"
         f"*Conversation:*\n{conv_name}\n\n"
         f"*Browser:*\n{browser_status_str}\n\n"
         f"*Browser Accounts:*\n{browser_accs}\n\n"
@@ -535,6 +537,39 @@ async def handle_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+@restricted
+async def handle_effort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """View or set reasoning effort (low|medium|high). Passed to providers that
+    support it (agy --effort); silently ignored by providers that don't."""
+    args = context.args
+    cur = session_manager.state.active_effort
+
+    if not args:
+        await update.effective_message.reply_text(
+            f"Current effort: `{cur or 'default (model)'}`\n\n"
+            "Usage: `/effort [low|medium|high|off]`\n"
+            "`off` resets to the model default.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    val = args[0].lower().strip()
+    if val in ("off", "none", "default"):
+        session_manager.set_effort(None)
+        await update.effective_message.reply_text("✅ Effort reset to model default.")
+        return
+    if val not in ("low", "medium", "high"):
+        await update.effective_message.reply_text("❌ Effort must be `low`, `medium`, `high`, or `off`.")
+        return
+
+    session_manager.set_effort(val)
+    await update.effective_message.reply_text(
+        f"✅ Reasoning effort set to `{val}`.\n"
+        "Applies to the next prompt. Supported by: AGY (agy --effort).",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
 # ==============================================================================
 # CONVERSATION COMMANDS (API)
 # ==============================================================================
@@ -801,7 +836,10 @@ async def execute_api_prompt(update: Update, prompt_text: str) -> None:
             current_telegram_msg = initial_msg
             cancelled = False
 
-            async for chunk in api_prov.send_message(history, model=model_name, stream=True):
+            send_opts: dict[str, Any] = {}
+            if state.active_effort:
+                send_opts["effort"] = state.active_effort
+            async for chunk in api_prov.send_message(history, model=model_name, stream=True, **send_opts):
                 if task.cancel_requested:
                     cancelled = True
                     break

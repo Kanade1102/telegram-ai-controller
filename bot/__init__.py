@@ -19,6 +19,7 @@ from bot.handlers import (
     handle_use,
     handle_models,
     handle_model,
+    handle_effort,
     handle_conversations,
     handle_newchat,
     handle_usechat,
@@ -62,6 +63,7 @@ def build_bot_app() -> Application:
 
     app.add_handler(CommandHandler("models", handle_models))
     app.add_handler(CommandHandler("model", handle_model))
+    app.add_handler(CommandHandler("effort", handle_effort))
 
     app.add_handler(CommandHandler("conversations", handle_conversations))
     app.add_handler(CommandHandler("newchat", handle_newchat))

@@ -48,6 +48,8 @@ class Settings:
     # Google Antigravity CLI (agy)
     agy_cli_path: str = "agy"
     agy_default_model: str = "gemini-3.8-flash-medium"
+    # Reasoning effort: low|medium|high; empty = model default
+    agy_effort: str = ""
 
     # Logging
     log_level: str = "INFO"
@@ -121,6 +123,7 @@ def load_settings() -> Settings:
         local_server_port=int(credentials.get("LOCAL_SERVER_PORT", "8765")),
         agy_cli_path=credentials.get("AGY_CLI_PATH", "agy"),
         agy_default_model=credentials.get("AGY_DEFAULT_MODEL", "gemini-3.8-flash-medium"),
+        agy_effort=credentials.get("AGY_EFFORT", "").lower(),
         log_level=credentials.get("LOG_LEVEL", "INFO").upper(),
         openai_api_key=credentials.get("OPENAI_API_KEY"),
         openai_default_model=credentials.get("OPENAI_DEFAULT_MODEL", "gpt-4o"),

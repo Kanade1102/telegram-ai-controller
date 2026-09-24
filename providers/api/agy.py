@@ -120,6 +120,11 @@ class AgyCLIProvider(APIProvider):
         if not chosen_model:
             raise APIError("No agy model selected", provider=self.name)
 
+        # Reasoning effort (low|medium|high) forwarded to agy --effort.
+        effort = options.get("effort") or settings.agy_effort
+        if effort and effort.lower() not in ("low", "medium", "high"):
+            raise APIError(f"Invalid agy effort: {effort} (use low|medium|high)", provider=self.name)
+
         # Rebuild one prompt from history: newest message last. agy is stateless
         # per invocation; including history keeps multi-turn context intact.
         parts = []
@@ -146,6 +151,7 @@ class AgyCLIProvider(APIProvider):
             f"--model={chosen_model}",
             f"--print-timeout={AGY_TURN_TIMEOUT}s",
             "--output-format=stream-json",
+            *((f"--effort={effort}",) if effort else ()),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

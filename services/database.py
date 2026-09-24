@@ -195,6 +195,11 @@ class Database:
             """, (key, value, now))
             conn.commit()
 
+    def delete_session_val(self, key: str) -> None:
+        with self._get_connection() as conn:
+            conn.cursor().execute("DELETE FROM selected_sessions WHERE key = ?", (key,))
+            conn.commit()
+
     # --- Usage Stats ---
 
     def record_usage(

@@ -22,6 +22,7 @@ class SessionState:
     active_browser_tab_id: Optional[str] = None
     active_conversation_id: Optional[int] = None
     active_fallback_chain: Optional[str] = None
+    active_effort: Optional[str] = None  # None = model default; else low|medium|high
     last_prompt: str = ""
     last_prompt_time: str = ""
     last_known_response: str = ""
@@ -30,8 +31,9 @@ class SessionState:
 
 
 class SessionManager:
-    def __init__(self, state_file: Path = STATE_FILE):
+    def __init__(self, state_file: Path = STATE_FILE, database=None):
         self.state_file = state_file
+        self.db = database or db  # injectable for tests; never let tests touch the real DB
         self.state = SessionState()
         self.load_state()
 
@@ -47,6 +49,7 @@ class SessionManager:
                         active_browser_tab_id=data.get("active_browser_tab_id"),
                         active_conversation_id=data.get("active_conversation_id"),
                         active_fallback_chain=data.get("active_fallback_chain"),
+                        active_effort=data.get("active_effort"),
                         last_prompt=data.get("last_prompt", ""),
                         last_prompt_time=data.get("last_prompt_time", ""),
                         last_known_response=data.get("last_known_response", ""),
@@ -57,15 +60,18 @@ class SessionManager:
                 logger.warning("Could not load state from %s: %s", self.state_file, e)
 
         # Reconcile from DB if present
-        saved_provider = db.get_session_val("active_provider")
+        saved_provider = self.db.get_session_val("active_provider")
         if saved_provider:
             self.state.active_provider = saved_provider
-        saved_mode = db.get_session_val("active_mode")
+        saved_mode = self.db.get_session_val("active_mode")
         if saved_mode:
             self.state.active_mode = saved_mode
-        saved_conv = db.get_session_val("active_conversation_id")
+        saved_conv = self.db.get_session_val("active_conversation_id")
         if saved_conv and saved_conv.isdigit():
             self.state.active_conversation_id = int(saved_conv)
+        saved_effort = self.db.get_session_val("active_effort")
+        if saved_effort:
+            self.state.active_effort = saved_effort
 
     def save_state(self) -> None:
         """Persist session state to state.json and DB."""
@@ -80,12 +86,18 @@ class SessionManager:
 
         # Sync to DB
         try:
-            db.set_session_val("active_provider", self.state.active_provider)
-            db.set_session_val("active_mode", self.state.active_mode)
+            self.db.set_session_val("active_provider", self.state.active_provider)
+            self.db.set_session_val("active_mode", self.state.active_mode)
             if self.state.active_conversation_id is not None:
-                db.set_session_val("active_conversation_id", str(self.state.active_conversation_id))
+                self.db.set_session_val("active_conversation_id", str(self.state.active_conversation_id))
             if self.state.active_fallback_chain is not None:
-                db.set_session_val("active_fallback_chain", self.state.active_fallback_chain)
+                self.db.set_session_val("active_fallback_chain", self.state.active_fallback_chain)
+            else:
+                self.db.delete_session_val("active_fallback_chain")
+            if self.state.active_effort is not None:
+                self.db.set_session_val("active_effort", self.state.active_effort)
+            else:
+                self.db.delete_session_val("active_effort")
         except Exception as e:
             logger.error("Failed to sync session state to DB: %s", e)
 
@@ -111,6 +123,10 @@ class SessionManager:
 
     def set_fallback(self, fallback: Optional[str]) -> None:
         self.state.active_fallback_chain = fallback
+        self.save_state()
+
+    def set_effort(self, effort: Optional[str]) -> None:
+        self.state.active_effort = effort
         self.save_state()
 
     def record_prompt(self, prompt: str, timestamp: str) -> None:

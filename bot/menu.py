@@ -29,6 +29,7 @@ COMMANDS = [
     ("web", "Switch to browser mode"),
     ("models", "List provider models"),
     ("model", "Select model"),
+    ("effort", "Set reasoning effort"),
     ("prompt", "Send prompt"),
     ("promt", "Send prompt (alias)"),
     ("progress", "Check AI progress"),
