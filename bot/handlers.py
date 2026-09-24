@@ -101,6 +101,7 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "• `/use <id|name>` — Select active browser tab\n\n"
         "*API Conversations*\n"
         "• `/conversations` — List saved API threads\n"
+        "• `/resume [number]` — List chat history numbered, resume by number\n"
         "• `/newchat <name>` — Create a new API conversation\n"
         "• `/usechat <id>` — Select conversation thread\n"
         "• `/renamechat <id> <name>` — Rename conversation\n"
@@ -589,6 +590,57 @@ async def handle_conversations(update: Update, context: ContextTypes.DEFAULT_TYP
 
     lines.append("\nSwitch with: `/usechat <id>`")
     await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+@restricted
+async def handle_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Resume a saved conversation. Bare /resume lists history numbered from 1;
+    /resume <number> switches to that conversation (number = position in list)."""
+    convs = conversation_manager.list_conversations()
+    if not convs:
+        await update.effective_message.reply_text(
+            "No saved conversations yet. Start one with `/newchat <name>`."
+        )
+        return
+
+    # 1. No argument: show numbered history
+    if not context.args:
+        active_id = session_manager.state.active_conversation_id
+        lines = ["💬 *Chat History*\n"]
+        for i, c in enumerate(convs, 1):
+            tag = " *(active)*" if c["id"] == active_id else ""
+            lines.append(
+                f"{i}: *{c['name']}*{tag}\n"
+                f"   Provider: {c['provider']} | Model: `{c['model']}`"
+            )
+        lines.append("\nResume with: `/resume <number>`")
+        await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # 2. Argument: switch by 1-based position
+    if not context.args[0].isdigit():
+        await update.effective_message.reply_text("Usage: `/resume` to list, `/resume <number>` to resume.")
+        return
+
+    n = int(context.args[0])
+    if n < 1 or n > len(convs):
+        await update.effective_message.reply_text(
+            f"❌ Number {n} not in history (1-{len(convs)}). Use `/resume` to see the list."
+        )
+        return
+
+    conv = convs[n - 1]
+    session_manager.set_conversation(conv["id"])
+    session_manager.set_provider(conv["provider"])
+    model_manager.set_selected_model(conv["provider"], conv["model"])
+
+    await update.effective_message.reply_text(
+        f"✅ Resumed conversation:\n\n"
+        f"#{conv['id']}: *{conv['name']}*\n"
+        f"Provider: {conv['provider']}\n"
+        f"Model: `{conv['model']}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 
 @restricted
