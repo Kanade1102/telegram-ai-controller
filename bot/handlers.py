@@ -1,9 +1,15 @@
 """Telegram bot command handlers and message processing."""
 
 import asyncio
+import json
 import logging
+import os
+import shutil
+import sqlite3
+import tempfile
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Any
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -208,17 +214,66 @@ async def handle_usage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     conv_id = state.active_conversation_id
     stats = db.get_usage_summary(conversation_id=conv_id)
 
-    header = f"Current conversation (#{conv_id})" if conv_id else "All API conversations"
-    msg = (
-        f"📊 *Usage Statistics — {header}*\n\n"
-        f"*Provider:* {get_provider_display_name(state.active_provider)}\n"
-        f"*Requests:* {stats['request_count']}\n"
-        f"*Input tokens:* {stats['total_prompt_tokens']:,}\n"
-        f"*Output tokens:* {stats['total_completion_tokens']:,}\n"
-        f"*Total tokens:* {stats['total_tokens']:,}\n"
-        f"*Reported cost:* ${stats['total_cost']:.4f}"
+    lines = ["📊 *9Router Usage* (live)\n"]
+
+    # 9Router local proxy stats — read straight from its SQLite (same data as
+    # the dashboard's Usage page). Read-only copy avoids WAL conflicts.
+    try:
+        src = Path(settings.router9_db_path).expanduser()
+        if src.is_file():
+            tmp = Path(tempfile.gettempdir()) / f"9r_usage_{os.getpid()}.sqlite"
+            shutil.copy2(src, tmp)
+            conn = sqlite3.connect(str(tmp))
+            conn.row_factory = sqlite3.Row
+            try:
+                # Today + totals by provider
+                row = conn.execute(
+                    "SELECT dateKey, data FROM usageDaily ORDER BY dateKey DESC LIMIT 1"
+                ).fetchone()
+                if row:
+                    d = json.loads(row["data"])
+                    lines.append(
+                        f"*Today ({row['dateKey']}):*\n"
+                        f"Requests: {d.get('requests', 0):,}\n"
+                        f"Input tokens: {d.get('promptTokens', 0):,}\n"
+                        f"Cached tokens: {d.get('cachedTokens', 0):,}\n"
+                        f"Output tokens: {d.get('completionTokens', 0):,}\n"
+                        f"Est. cost: ~${d.get('cost', 0):.4f}\n"
+                    )
+                    by_prov = d.get("byProvider", {})
+                    if by_prov:
+                        lines.append("\n*By provider (today):*")
+                        for prov_name, pdata in sorted(
+                            by_prov.items(),
+                            key=lambda kv: kv[1].get("requests", 0),
+                            reverse=True,
+                        ):
+                            lines.append(
+                                f"• {prov_name}: {pdata.get('requests', 0):,} req | "
+                                f"{pdata.get('promptTokens', 0):,} in | "
+                                f"{pdata.get('completionTokens', 0):,} out | "
+                                f"~${pdata.get('cost', 0):.4f}"
+                            )
+            finally:
+                conn.close()
+                tmp.unlink(missing_ok=True)
+        else:
+            lines.append("(9Router DB not found)")
+    except Exception as e:
+        logger.warning("9Router usage read failed: %s", e)
+        lines.append("(9Router unavailable)")
+
+    lines.append(
+        "\n*This bot's own usage:*\n"
+        f"Provider: {get_provider_display_name(state.active_provider)}\n"
+        f"Conversation: #{conv_id if conv_id else '—'}\n"
+        f"Requests: {stats['request_count']}\n"
+        f"Input tokens: {stats['total_prompt_tokens']:,}\n"
+        f"Output tokens: {stats['total_completion_tokens']:,}\n"
+        f"Reported cost: ${stats['total_cost']:.4f}"
     )
-    await update.effective_message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
 # ==============================================================================

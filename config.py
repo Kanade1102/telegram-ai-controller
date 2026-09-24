@@ -77,6 +77,8 @@ class Settings:
     router9_api_key: Optional[str] = None
     router9_base_url: str = "https://api.9router.com/v1"
     router9_default_model: str = ""
+    # Local 9Router Proxy dashboard DB (usage stats); live path, read-only
+    router9_db_path: str = "~/.9router/db/data.sqlite"
 
     anthropic_api_key: Optional[str] = None
     anthropic_default_model: str = "claude-3-5-sonnet-20241022"
@@ -147,6 +149,7 @@ def load_settings() -> Settings:
         router9_api_key=credentials.get("ROUTER9_API_KEY"),
         router9_base_url=credentials.get("ROUTER9_BASE_URL", "https://api.9router.com/v1"),
         router9_default_model=credentials.get("ROUTER9_DEFAULT_MODEL", ""),
+        router9_db_path=credentials.get("ROUTER9_DB_PATH") or "~/.9router/db/data.sqlite",
         anthropic_api_key=credentials.get("ANTHROPIC_API_KEY"),
         anthropic_default_model=credentials.get("ANTHROPIC_DEFAULT_MODEL", "claude-3-5-sonnet-20241022"),
         deepseek_api_key=credentials.get("DEEPSEEK_API_KEY"),
