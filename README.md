@@ -192,7 +192,7 @@ You will see the startup self-test output:
 ### Prompts, Progress & Control
 | Command | Description |
 |---|---|
-| `/prompt <text>` (or `/promt`) | Send prompt preserving newlines, Unicode, Vietnamese, code blocks, and quotes |
+| Send a plain message | Any non-command text = prompt, sent to active backend preserving newlines, Unicode, Vietnamese, code blocks, and quotes |
 | `/progress` | Browser screenshot + DOM status OR API elapsed time + received characters + tokens |
 | `/last` | Show the latest response from the active AI session |
 | `/stop` | Click browser "Stop generating" button or cancel active API stream |

@@ -93,7 +93,7 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "• `/model <model-id|alias>` — Set model for active provider\n"
         "• `/effort [low|medium|high|off]` — Reasoning effort (AGY)\n\n"
         "*Prompts & Generation*\n"
-        "• `/prompt <text>` (or `/promt`) — Send prompt to active backend\n"
+        "• Chat directly — just send a message, no command needed\n"
         "• `/progress` — Check active activity & screenshot\n"
         "• `/last` — Show latest visible AI response\n"
         "• `/stop` — Stop current generation\n"
@@ -365,7 +365,7 @@ async def handle_mode_api(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Shortcut: switch to API mode (same as /mode api)."""
     session_manager.set_mode("api")
     await update.effective_message.reply_text(
-        "✅ Mode set to *API*. `/prompt` will use direct API providers.",
+        "✅ Mode set to *API*. Direct API providers will answer your chats.",
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -375,7 +375,7 @@ async def handle_mode_web(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Shortcut: switch to browser mode (same as /mode browser)."""
     session_manager.set_mode("browser")
     await update.effective_message.reply_text(
-        "✅ Mode set to *BROWSER*. `/prompt` will drive your browser AI tabs.",
+        "✅ Mode set to *BROWSER*. Your chats will drive browser AI tabs.",
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -825,11 +825,15 @@ async def handle_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 @restricted
 async def handle_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    raw_text = update.effective_message.text or ""
-    prompt_text = extract_prompt_text(raw_text)
+    raw_text = update.effective_message.text if update.effective_message else ""
+    raw_text = raw_text or ""
+    if raw_text.startswith("/"):
+        prompt_text = extract_prompt_text(raw_text)
+    else:
+        prompt_text = raw_text.strip()
 
     if not prompt_text:
-        await update.effective_message.reply_text("Please provide a prompt after the command. Example:\n`/prompt hello`", parse_mode=ParseMode.MARKDOWN)
+        await update.effective_message.reply_text("Please send a message with some text.")
         return
 
     now_iso = datetime.now(timezone.utc).isoformat()

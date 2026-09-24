@@ -30,8 +30,6 @@ COMMANDS = [
     ("models", "List provider models"),
     ("model", "Select model"),
     ("effort", "Set reasoning effort"),
-    ("prompt", "Send prompt"),
-    ("promt", "Send prompt (alias)"),
     ("progress", "Check AI progress"),
     ("shot", "Screenshot active tab/desktop"),
     ("last", "Latest AI response"),

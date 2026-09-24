@@ -1,7 +1,7 @@
 """Telegram bot setup and handler registration."""
 
 import logging
-from telegram.ext import Application, ApplicationBuilder, CommandHandler
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters
 from config import settings
 from bot.handlers import (
     handle_start,
@@ -76,9 +76,8 @@ def build_bot_app() -> Application:
 
     app.add_handler(CommandHandler("fallback", handle_fallback))
 
-    # Support both /prompt and /promt
-    app.add_handler(CommandHandler("prompt", handle_prompt))
-    app.add_handler(CommandHandler("promt", handle_prompt))
+    # Chat without /prompt: any plain text message is a prompt.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_prompt))
 
     app.add_handler(CommandHandler("progress", handle_progress))
     app.add_handler(CommandHandler("shot", handle_shot))
