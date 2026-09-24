@@ -9,6 +9,7 @@ from services.task_manager import task_manager, TaskStatus
 from services.session_manager import session_manager
 from services.model_manager import model_manager
 from services import claude_local
+from services import hermes_local
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,18 @@ class ProgressService:
                         "status": cl_info["status"],
                         "screenshot_path": None,
                         "text": claude_local.format_local_claude(cl_info),
+                    }
+                try:
+                    hm_info = hermes_local.get_local_hermes_session()
+                except Exception as e:
+                    logger.warning("Local hermes session check failed: %s", e)
+                    hm_info = None
+                if hm_info:
+                    return {
+                        "backend": "hermes_local",
+                        "status": hm_info["status"],
+                        "screenshot_path": None,
+                        "text": hermes_local.format_local_hermes(hm_info),
                     }
                 return {
                     "backend": "api",
