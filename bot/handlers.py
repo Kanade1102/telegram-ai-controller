@@ -17,7 +17,7 @@ from bot.security import restricted
 from services.session_manager import session_manager
 from services.model_manager import model_manager
 from services.conversation_manager import conversation_manager
-from services.native_sessions import list_native_sessions
+from services.native_sessions import list_native_sessions, fetch_native_history
 from services.permission_relay import permission_relay
 from services.task_manager import task_manager, TaskStatus
 from services.fallback_manager import fallback_manager
@@ -694,10 +694,43 @@ async def handle_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             session_manager.set_conversation(conv_id)
             session_manager.set_provider(item["provider"])
             model_manager.set_selected_model(item["provider"], item["model"])
+            await update.effective_message.reply_text(f"Resumed {item['provider']} session\n\n"
+                                                      f"{item['title']}\n#{conv_id}")
+            return
+        # Native CLI session: fetch its recent turns, show them in Telegram,
+        # and preload them into a bot DB conversation so the user sees the
+        # previous answers and continues right here in the chat.
+        provider = item["provider"]
+        history = fetch_native_history(provider, item["session_id"])
+        session_manager.set_native_session(provider, item["session_id"])
+        conv = conversation_manager.create_conversation(
+            f"Native {provider}: {item['title'][:40]}",
+            provider,
+            model_manager.get_selected_model(provider),
+        )
+        for h in history:
+            if h["role"] == "user":
+                conversation_manager.add_user_message(conv["id"], h["content"])
+            else:
+                conversation_manager.add_assistant_message(conv["id"], h["content"])
+        session_manager.set_conversation(conv["id"], clear_native=False)
+
+        reply = f"Resumed {provider} session\n\n{item['title']}\n{item['session_id']}"
+        await update.effective_message.reply_text(reply)
+        if history:
+            lines = ["📜 *Previous answers (latest first)*\n"]
+            for h in reversed(history):
+                who = "You" if h["role"] == "user" else "AI"
+                snippet = h["content"].replace("`", "'")
+                if len(snippet) > 350:
+                    snippet = snippet[:350] + "…"
+                lines.append(f"*{who}:* {snippet}")
+            await update.effective_message.reply_text("\n\n".join(lines), parse_mode=ParseMode.MARKDOWN)
         else:
-            session_manager.set_native_session(item["provider"], item["session_id"])
-        await update.effective_message.reply_text(f"Resumed {item['provider']} session\n\n"
-                                                  f"{item['title']}\n{item['session_id']}")
+            await update.effective_message.reply_text(
+                "(No readable history to show — the CLI keeps its own context; "
+                "just send your next message to continue.)"
+            )
         return
 
     if arg and arg not in providers:
@@ -1409,7 +1442,7 @@ async def handle_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def handle_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     args = context.args
-    interval = 30
+    interval = 15
     if args and args[0].isdigit():
         interval = max(10, int(args[0]))  # Minimum 10 seconds to avoid Telegram spam
 
@@ -1424,26 +1457,14 @@ async def handle_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             while True:
                 await asyncio.sleep(interval)
-                info = await progress_service.get_progress()
+                # Text-only poll: NEVER capture/switch anything — the user's
+                # desktop must not move just because the watcher is running.
+                info = await progress_service.get_progress(with_screenshot=False)
                 status = info.get("status", "UNKNOWN")
                 # Send update if GENERATING
                 if status == ProgressState.GENERATING.value:
-                    shot_path = info.get("screenshot_path")
                     text = info.get("text", "")
-                    if shot_path:
-                        try:
-                            with open(shot_path, "rb") as photo:
-                                # Plain caption: MARKDOWN caption errors drop the photo.
-                                await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=text)
-                        except Exception:
-                            try:
-                                with open(shot_path, "rb") as photo:
-                                    await context.bot.send_photo(chat_id=chat_id, photo=photo)
-                                await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
-                            except Exception:
-                                logger.warning("Watch photo send failed", exc_info=True)
-                    else:
-                        await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
         except asyncio.CancelledError:
             pass
         except Exception as e:

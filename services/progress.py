@@ -80,8 +80,14 @@ async def screenshot_cli_window(title_part: str) -> Optional[str]:
 
 
 class ProgressService:
-    async def get_progress(self) -> dict[str, Any]:
-        """Collect per-provider progress sections and join them for Telegram."""
+    async def get_progress(self, with_screenshot: bool = True) -> dict[str, Any]:
+        """Collect per-provider progress sections and join them for Telegram.
+
+        with_screenshot=False (the /watch loop) skips ALL capture side effects:
+        no Hyprland workspace switch, no grim, no browser bring_to_front. The
+        user's desktop must never jump around because a background watcher
+        is polling.
+        """
         sections: list[str] = []
         shot_path = None
         state = session_manager.state
@@ -127,16 +133,19 @@ class ProgressService:
         # Screenshot target #1: the CLI terminal window, whenever a local
         # session exists — GENERATING gets priority over IDLE, and a
         # generating CLI beats the browser. Switching workspaces is the
-        # Hyprland equivalent of switching tabs.
+        # Hyprland equivalent of switching tabs. Only on explicit request:
+        # the /watch loop passes with_screenshot=False so the desktop never
+        # moves while nobody asked for a picture.
         cli_shot = None
-        if hm_info and hm_info["status"] == "GENERATING":
-            cli_shot = await screenshot_cli_window("hermes")
-        if not cli_shot and cl_info and cl_info["status"] == "GENERATING":
-            cli_shot = await screenshot_cli_window("claude")
-        if not cli_shot and hm_info:
-            cli_shot = await screenshot_cli_window("hermes")
-        if not cli_shot and cl_info:
-            cli_shot = await screenshot_cli_window("claude")
+        if with_screenshot:
+            if hm_info and hm_info["status"] == "GENERATING":
+                cli_shot = await screenshot_cli_window("hermes")
+            if not cli_shot and cl_info and cl_info["status"] == "GENERATING":
+                cli_shot = await screenshot_cli_window("claude")
+            if not cli_shot and hm_info:
+                cli_shot = await screenshot_cli_window("hermes")
+            if not cli_shot and cl_info:
+                cli_shot = await screenshot_cli_window("claude")
 
         # 4. Browser backend: every open AI tab, one section each.
         #    Screenshot target = the tab that is GENERATING; else active tab.
@@ -185,14 +194,16 @@ class ProgressService:
         # Screenshot: switch to the target provider's tab before capturing so
         # the photo always shows the tab whose progress is being reported.
         # A CLI shot wins: the desktop is already showing the CLI terminal.
-        if shot_target and not cli_shot:
-            try:
-                await shot_target["page"].bring_to_front()
-            except Exception as e:
-                logger.debug("Could not focus tab for screenshot: %s", e)
-            shot_path = await screenshot_service.capture(page=shot_target["page"])
-        elif cli_shot:
-            shot_path = cli_shot
+        # Skipped entirely when with_screenshot=False (/watch background poll).
+        if with_screenshot:
+            if shot_target and not cli_shot:
+                try:
+                    await shot_target["page"].bring_to_front()
+                except Exception as e:
+                    logger.debug("Could not focus tab for screenshot: %s", e)
+                shot_path = await screenshot_service.capture(page=shot_target["page"])
+            elif cli_shot:
+                shot_path = cli_shot
 
         # 5. Fallback: nothing running anywhere.
         if not sections:

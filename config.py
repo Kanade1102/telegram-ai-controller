@@ -51,7 +51,7 @@ class Settings:
     response_char_limit: int = 3900
 
     # Streaming and Cache
-    telegram_stream_update_interval: float = 1.5
+    telegram_stream_update_interval: float = 0.3
     model_cache_seconds: int = 1800
 
     # Local Management UI
@@ -147,7 +147,7 @@ def load_settings() -> Settings:
         screenshot_mode=credentials.get("SCREENSHOT_MODE", "browser").lower(),
         screenshot_dir=screenshot_path,
         response_char_limit=int(credentials.get("RESPONSE_CHAR_LIMIT", "3900")),
-        telegram_stream_update_interval=float(credentials.get("TELEGRAM_STREAM_UPDATE_INTERVAL", "1.5")),
+        telegram_stream_update_interval=float(credentials.get("TELEGRAM_STREAM_UPDATE_INTERVAL", "0.3")),
         model_cache_seconds=int(credentials.get("MODEL_CACHE_SECONDS", "1800")),
         local_server_enabled=credentials.get("LOCAL_SERVER_ENABLED", "true").lower() in ("true", "1", "yes"),
         local_server_host=credentials.get("LOCAL_SERVER_HOST", "127.0.0.1"),

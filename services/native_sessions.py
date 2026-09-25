@@ -143,3 +143,77 @@ def list_native_sessions(limit_per_provider: int = 100) -> list[dict[str, Any]]:
         + list_claude_sessions(limit_per_provider)
         + list_agy_sessions(limit_per_provider)
     )
+
+
+def _last_hermes_texts(session_id: str, limit: int = 3) -> list[dict[str, str]]:
+    """Last user/assistant texts of a Hermes CLI session (newest first)."""
+    path = HOME / ".hermes" / "state.db"
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        rows = con.execute(
+            "SELECT role, content, timestamp FROM messages "
+            "WHERE session_id = ? AND role IN ('user','assistant') "
+            "AND content IS NOT NULL AND content != '' "
+            "ORDER BY timestamp DESC LIMIT ?",
+            (session_id, limit),
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        if "con" in locals():
+            con.close()
+    out = []
+    for role, content, ts in reversed(rows):
+        text = str(content).strip()
+        if text:
+            out.append({"role": role, "content": text})
+    return out
+
+
+def _last_claude_texts(session_id: str, limit: int = 3) -> list[dict[str, str]]:
+    """Last user/assistant texts of a Claude Code jsonl session (newest first)."""
+    root = HOME / ".claude" / "projects"
+    path = root / "*" / f"{session_id}.jsonl"
+    matches = sorted(root.glob(f"*/{session_id}.jsonl"))
+    if not matches:
+        return []
+    found: list[tuple[float, str, str]] = []
+    try:
+        with matches[0].open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                etype = ev.get("type")
+                if etype not in ("user", "assistant"):
+                    continue
+                msg = ev.get("message") or {}
+                content = msg.get("content")
+                if isinstance(content, list):
+                    parts = []
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            parts.append(block.get("text", ""))
+                    text = "\n".join(p for p in parts if p)
+                elif isinstance(content, str):
+                    text = content
+                else:
+                    continue
+                text = text.strip()
+                if text and not text.startswith("<"):
+                    found.append((ev.get("timestamp", 0) or 0, etype, text))
+    except OSError:
+        return []
+    return [{"role": r, "content": t} for _, r, t in found[-limit:]]
+
+
+def fetch_native_history(provider: str, session_id: str, limit: int = 3) -> list[dict[str, str]]:
+    """Last few turns of a native session, oldest first, for Telegram display
+    and preloading into the bot DB. agy has no plaintext history (protobuf
+    blobs) — returns [] by design; its CLI owns the context via --conversation."""
+    if provider == "hermes":
+        return _last_hermes_texts(session_id, limit)
+    if provider == "claudecode":
+        return _last_claude_texts(session_id, limit)
+    return []

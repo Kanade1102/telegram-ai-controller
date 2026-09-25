@@ -101,6 +101,8 @@ async def main_async() -> None:
                     await register_commands(bot_app.bot)
                     await bot_app.updater.start_polling(
                         drop_pending_updates=True,
+                        poll_interval=0.3,  # long-poll re-arm: don't idle 10s between updates
+                        timeout=8,  # server long-poll timeout (shorter = snappier delivery)
                         allowed_updates=["message", "callback_query"],
                     )
                     logger.info("Telegram Bot started and polling for authorized commands.")
