@@ -1,8 +1,13 @@
 """Progress checker formatting progress for browser, API task and local CLIs.
 
 One section per provider: bot's own task, local interactive claude REPL,
-local interactive hermes REPL, and the active browser tab. No merging —
+local interactive hermes REPL, and every open browser AI tab. No merging —
 each section keeps its own provider name, status and detail.
+
+Screenshot policy: the browser tab whose status is GENERATING gets focused
+(bring_to_front) and captured; if none is generating, the active tab is
+captured. The photo is returned even when other sections exist, so Telegram
+always shows the provider whose progress the user asked about.
 """
 
 import logging
@@ -64,45 +69,57 @@ class ProgressService:
         if hm_info:
             sections.append(hermes_local.format_local_hermes(hm_info))
 
-        # 4. Browser backend: active AI tab.
+        # 4. Browser backend: every open AI tab, one section each.
+        #    Screenshot target = the tab that is GENERATING; else active tab.
+        sessions = []
         try:
-            active_session = await browser_manager.get_active_session()
+            sessions = await browser_manager.get_ai_sessions()
         except Exception as e:
             logger.warning("Browser session check failed: %s", e)
-            active_session = None
-        if active_session:
-            page = active_session["page"]
-            provider = active_session["provider"]
-            title = active_session["title"]
-            # Switch to this provider's tab before capturing, so the screenshot
-            # always shows the tab whose progress we are reporting.
+        shot_target = None
+        for s in sessions:
+            page = s["page"]
+            title = s["title"]
             try:
-                await page.bring_to_front()
-            except Exception as e:
-                logger.debug("Could not focus tab for screenshot: %s", e)
-            shot_path = await screenshot_service.capture(page=page)
-            try:
-                status = await provider.get_status(page)
+                status = await s["provider"].get_status(page)
             except Exception:
                 status = ProgressState.UNKNOWN.value
             try:
-                last_resp = await provider.get_last_response(page)
+                last_resp = await s["provider"].get_last_response(page)
             except Exception:
                 last_resp = ""
             activity_desc = "Ready for input."
             if status == ProgressState.GENERATING.value:
                 activity_desc = "The AI is currently producing a response."
+                if shot_target is None:
+                    shot_target = s
             elif status == ProgressState.ERROR.value:
                 activity_desc = "An error banner or issue was detected on the page."
             snippet = (last_resp[:300] + "...") if len(last_resp) > 300 else last_resp
             snippet = snippet.replace("`", "'")
             sections.append(
-                f"🌐 *Browser — {active_session['provider_name']}*\n"
+                f"🌐 *Browser — {s['provider_name']}*\n"
                 f"*Status:* {status}\n"
                 f"*Session:* {title}\n"
                 f"*Activity:* {activity_desc}\n"
                 f"*Last visible:* `{snippet or 'No response text visible yet.'}`"
             )
+        if shot_target is None:
+            for s in sessions:
+                if s.get("active"):
+                    shot_target = s
+                    break
+        if shot_target is None and sessions:
+            shot_target = sessions[0]
+
+        # Screenshot: switch to the target provider's tab before capturing so
+        # the photo always shows the tab whose progress is being reported.
+        if shot_target:
+            try:
+                await shot_target["page"].bring_to_front()
+            except Exception as e:
+                logger.debug("Could not focus tab for screenshot: %s", e)
+            shot_path = await screenshot_service.capture(page=shot_target["page"])
 
         # 5. Fallback: nothing running anywhere.
         if not sections:
@@ -115,10 +132,6 @@ class ProgressService:
             )
 
         text = "\n\n".join(sections)
-        # Screenshot only when the browser section alone produced one (Telegram
-        # allows a single photo per message; multi-provider views stay text).
-        if len(sections) > 1:
-            shot_path = None
         return {
             "backend": "multi",
             "status": "ACTIVE",
