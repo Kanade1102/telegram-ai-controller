@@ -105,7 +105,7 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "• `/use <id|name>` — Select active browser tab\n\n"
         "*API Conversations*\n"
         "• `/conversations` — List saved API threads\n"
-        "• `/resume [number]` — List bot + CLI sessions, continue by number\n"
+        "• `/resume [provider|number]` — List provider sessions, continue by number\n"
         "• `/newchat <name>` — Create a new API conversation\n"
         "• `/usechat <id>` — Select conversation thread\n"
         "• `/renamechat <id> <name>` — Rename conversation\n"
@@ -671,84 +671,94 @@ async def handle_conversations(update: Update, context: ContextTypes.DEFAULT_TYP
 
 @restricted
 async def handle_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """List and resume bot chats plus native Hermes, Claude and AGY sessions."""
-    if not context.args:
-        choices: list[dict[str, Any]] = []
-        for c in conversation_manager.list_conversations(limit=100):
-            choices.append({
-                "kind": "bot",
-                "provider": c["provider"],
-                "session_id": str(c["id"]),
-                "title": c["name"],
-                "model": c["model"],
-                "current": c["id"] == session_manager.state.active_conversation_id
-                and not session_manager.state.active_native_session_id,
-            })
-        choices.extend(list_native_sessions())
-        provider_order = {"hermes": 0, "claudecode": 1, "agy": 2}
-        choices.sort(key=lambda item: provider_order.get(item["provider"], 10))
-        context.user_data["resume_choices"] = choices
+    """List and resume sessions of ONE provider: /resume, /resume <provider>, /resume <number>."""
+    labels = {"hermes": "Hermes", "claudecode": "Claude Code", "agy": "AGY"}
+    providers = tuple(labels)
+    state = session_manager.state
 
-        if not choices:
-            await update.effective_message.reply_text("No saved sessions found.")
+    arg = context.args[0].strip().lower() if context.args else None
+
+    # Numeric selection from the last listed (provider-filtered) snapshot.
+    if arg and arg.isdigit():
+        choices = context.user_data.get("resume_choices") or []
+        n = int(arg)
+        if n < 1 or n > len(choices):
+            await update.effective_message.reply_text("Selection expired or invalid. Run /resume again.")
             return
+        item = choices[n - 1]
+        if item["kind"] == "bot":
+            conv_id = int(item["session_id"])
+            session_manager.set_conversation(conv_id)
+            session_manager.set_provider(item["provider"])
+            model_manager.set_selected_model(item["provider"], item["model"])
+        else:
+            session_manager.set_native_session(item["provider"], item["session_id"])
+        await update.effective_message.reply_text(f"Resumed {item['provider']} session\n\n"
+                                                  f"{item['title']}\n{item['session_id']}")
+        return
 
-        labels = {"hermes": "Hermes", "claudecode": "Claude Code", "agy": "AGY"}
-        lines = ["Resume sessions"]
-        previous_provider = None
-        for i, item in enumerate(choices, 1):
-            provider = item["provider"]
-            if provider != previous_provider:
-                lines += ["", f"[{labels.get(provider, provider)}]"]
-                previous_provider = provider
-            selected = (
-                item["kind"] == "native"
-                and provider == session_manager.state.active_native_provider
-                and item["session_id"] == session_manager.state.active_native_session_id
-            )
-            tag = " [SELECTED]" if selected else " [CURRENT]" if item.get("current") else ""
-            detail = f" · {item.get('time', '')}" if item.get("time") else ""
-            lines.append(f"{i}. {item['title'][:90]}{tag}{detail}\n   {item['session_id']}")
-        lines += ["", "Choose: /resume <number>"]
+    if arg and arg not in providers:
+        await update.effective_message.reply_text(
+            "Usage: /resume to list active provider, /resume <provider>, /resume <number>.\n"
+            "Providers: hermes, claudecode, agy."
+        )
+        return
 
-        # Telegram max is 4096 chars; split only between session entries.
-        chunk = ""
-        for line in lines:
-            candidate = f"{chunk}\n{line}" if chunk else line
-            if len(candidate) > 3900:
-                await update.effective_message.reply_text(chunk)
-                chunk = line
-            else:
-                chunk = candidate
-        if chunk:
+    # Provider to list: explicit arg, else the active native provider, else active CLI provider.
+    provider = arg or state.active_native_provider
+    if not provider:
+        provider = state.active_provider if state.active_provider in providers else None
+    if not provider:
+        await update.effective_message.reply_text(
+            "Choose provider: /resume hermes, /resume claudecode, /resume agy"
+        )
+        return
+
+    choices: list[dict[str, Any]] = []
+    for c in conversation_manager.list_conversations(limit=200):
+        if c["provider"] != provider:
+            continue
+        choices.append({
+            "kind": "bot",
+            "provider": c["provider"],
+            "session_id": str(c["id"]),
+            "title": c["name"],
+            "model": c["model"],
+            "current": c["id"] == state.active_conversation_id and not state.active_native_session_id,
+        })
+    choices.extend(n for n in list_native_sessions() if n["provider"] == provider)
+    context.user_data["resume_choices"] = choices
+
+    if not choices:
+        await update.effective_message.reply_text(
+            f"No saved sessions for {labels[provider]}.\n"
+            "Other providers: /resume hermes, /resume claudecode, /resume agy"
+        )
+        return
+
+    lines = [f"Resume — {labels[provider]}"]
+    for i, item in enumerate(choices, 1):
+        selected = (
+            item["kind"] == "native"
+            and provider == state.active_native_provider
+            and item["session_id"] == state.active_native_session_id
+        )
+        tag = " [SELECTED]" if selected else " [CURRENT]" if item.get("current") else ""
+        detail = f" · {item.get('time', '')}" if item.get("time") else ""
+        lines.append(f"{i}. {item['title'][:90]}{tag}{detail}\n   {item['session_id']}")
+    lines += ["", "Choose: /resume <number>", "Other: /resume hermes · claudecode · agy"]
+
+    # Telegram max is 4096 chars; split only between session entries.
+    chunk = ""
+    for line in lines:
+        candidate = f"{chunk}\n{line}" if chunk else line
+        if len(candidate) > 3900:
             await update.effective_message.reply_text(chunk)
-        return
-
-    if not context.args[0].isdigit():
-        await update.effective_message.reply_text("Usage: /resume to list, /resume <number> to resume.")
-        return
-
-    choices = context.user_data.get("resume_choices") or []
-    n = int(context.args[0])
-    if n < 1 or n > len(choices):
-        await update.effective_message.reply_text("Selection expired or invalid. Run /resume again.")
-        return
-
-    item = choices[n - 1]
-    if item["kind"] == "bot":
-        conv_id = int(item["session_id"])
-        session_manager.set_conversation(conv_id)
-        session_manager.set_provider(item["provider"])
-        model_manager.set_selected_model(item["provider"], item["model"])
-    else:
-        session_manager.set_native_session(item["provider"], item["session_id"])
-
-    await update.effective_message.reply_text(
-        f"Resumed {item['provider']} session\n\n"
-        f"{item['title']}\n"
-        f"ID: {item['session_id']}\n\n"
-        "Your next message continues this session."
-    )
+            chunk = line
+        else:
+            chunk = candidate
+    if chunk:
+        await update.effective_message.reply_text(chunk)
 
 
 @restricted

@@ -37,7 +37,7 @@ COMMANDS = [
     ("watch", "Periodic progress"),
     ("unwatch", "Stop periodic progress"),
     ("conversations", "List API chats"),
-    ("resume", "Resume bot or CLI session"),
+    ("resume", "Resume provider session"),
     ("newchat", "New API chat"),
     ("usechat", "Switch API chat"),
     ("renamechat", "Rename API chat"),
