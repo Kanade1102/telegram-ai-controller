@@ -30,11 +30,11 @@ def make_db(path: Path, holder_pid: int, lease_ts: float, expires_ts: float,
     import sqlite3
     con = sqlite3.connect(path)
     con.execute("CREATE TABLE session_turn_leases (conversation_id TEXT, holder TEXT, acquired_at REAL, expires_at REAL)")
-    con.execute("CREATE TABLE sessions (id TEXT, source TEXT, title TEXT, cwd TEXT, last_activity_at REAL, ended_at REAL)")
+    con.execute("CREATE TABLE sessions (id TEXT, source TEXT, title TEXT, cwd TEXT, last_activity_at REAL, ended_at REAL, hidden INTEGER DEFAULT 0, archived INTEGER DEFAULT 0)")
     con.execute("CREATE TABLE messages (session_id TEXT, role TEXT, content TEXT, timestamp REAL, active INTEGER)")
     con.execute("INSERT INTO session_turn_leases VALUES ('s1', ?, ?, ?)",
                 (f"pid={holder_pid}:turn=x:platform=cli", lease_ts, expires_ts))
-    con.execute("INSERT INTO sessions VALUES ('s1', 'cli', 'My session', '/tmp/x', ?, NULL)", (lease_ts,))
+    con.execute("INSERT INTO sessions VALUES ('s1', 'cli', 'My session', '/tmp/x', ?, NULL, 0, 0)", (lease_ts,))
     con.execute("INSERT INTO messages VALUES ('s1', ?, ?, ?, 1)", (*last_msg, lease_ts))
     con.commit()
     con.close()

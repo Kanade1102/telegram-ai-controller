@@ -146,6 +146,8 @@ class ProgressService:
                 cli_shot = await screenshot_cli_window("hermes")
             if not cli_shot and cl_info:
                 cli_shot = await screenshot_cli_window("claude")
+            # IDLE CLI still gets the shot priority over the browser: the
+            # user asked for progress on the CLI that's open, not the tab.
 
         # 4. Browser backend: every open AI tab, one section each.
         #    Screenshot target = the tab that is GENERATING; else active tab.

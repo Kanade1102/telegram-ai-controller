@@ -131,9 +131,12 @@ def get_local_hermes_session(
                 "session_id": session_id,
             }
         # REPL open but no live turn: report idle + last visible content.
+        # No ended_at filter: Hermes sets a future-ended lease timestamp on
+        # live REPLs, which "ended_at IS NULL" wrongly excludes (the REPL
+        # process liveness above is the real gate).
         row = con.execute(
             "SELECT id, title, cwd, last_activity_at FROM sessions "
-            "WHERE source = 'cli' AND ended_at IS NULL "
+            "WHERE source = 'cli' AND hidden = 0 AND archived = 0 "
             "ORDER BY last_activity_at DESC LIMIT 1"
         ).fetchone()
         if not row:
