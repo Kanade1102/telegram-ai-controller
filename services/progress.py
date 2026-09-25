@@ -153,6 +153,7 @@ class ProgressService:
                 status = await s["provider"].get_status(page)
             except Exception:
                 status = ProgressState.UNKNOWN.value
+            s["_status"] = status  # kept for the aggregate status below
             try:
                 last_resp = await s["provider"].get_last_response(page)
             except Exception:
@@ -204,9 +205,27 @@ class ProgressService:
             )
 
         text = "\n\n".join(sections)
+        # Real status, not a constant: the /watch loop gates on this and
+        # "ACTIVE" never matched its GENERATING check (notifications never
+        # fired). GENERATING = bot task running OR a local CLI session
+        # generating OR any browser tab generating.
+        status = "IDLE"
+        if active_task and active_task.status.value == "GENERATING":
+            status = "GENERATING"
+        elif (hm_info and hm_info["status"] == "GENERATING") or (
+            cl_info and cl_info["status"] == "GENERATING"
+        ):
+            status = "GENERATING"
+        else:
+            for s in sessions:
+                if s.get("_status") == ProgressState.GENERATING.value:
+                    status = "GENERATING"
+                    break
+        if status == "IDLE" and (sections and not sections[-1].startswith("📊")):
+            status = "ACTIVE"
         return {
             "backend": "multi",
-            "status": "ACTIVE",
+            "status": status,
             "screenshot_path": shot_path,
             "text": text,
         }

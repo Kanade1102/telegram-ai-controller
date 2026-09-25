@@ -1431,8 +1431,17 @@ async def handle_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     shot_path = info.get("screenshot_path")
                     text = info.get("text", "")
                     if shot_path:
-                        with open(shot_path, "rb") as photo:
-                            await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=text, parse_mode=ParseMode.MARKDOWN)
+                        try:
+                            with open(shot_path, "rb") as photo:
+                                # Plain caption: MARKDOWN caption errors drop the photo.
+                                await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=text)
+                        except Exception:
+                            try:
+                                with open(shot_path, "rb") as photo:
+                                    await context.bot.send_photo(chat_id=chat_id, photo=photo)
+                                await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+                            except Exception:
+                                logger.warning("Watch photo send failed", exc_info=True)
                     else:
                         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
         except asyncio.CancelledError:

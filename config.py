@@ -15,6 +15,20 @@ DATA_DIR = BASE_DIR / "data"
 CONFIG_DIR = BASE_DIR / "config"
 SCREENSHOTS_DIR = BASE_DIR / "screenshots"
 
+# systemd transient units get an empty Environment= — PATH has no ~/.local/bin,
+# so `shutil.which("hermes")` fails even though the binary exists for the user.
+# Resolve CLI paths at load time. ~/.local/bin wins: /usr/bin/claude is a stale
+# npm symlink (claude.exe), the real CLI lives in the user's local bin.
+def _resolve_cli_path(name: str) -> str:
+    if not name or os.path.sep in name or name.startswith(("~", ".")):
+        return name
+    import shutil
+    local_bin = Path.home() / ".local" / "bin" / name
+    if local_bin.is_file():
+        return str(local_bin)
+    found = shutil.which(name)
+    return found or name
+
 
 @dataclass
 class Settings:
@@ -138,13 +152,13 @@ def load_settings() -> Settings:
         local_server_enabled=credentials.get("LOCAL_SERVER_ENABLED", "true").lower() in ("true", "1", "yes"),
         local_server_host=credentials.get("LOCAL_SERVER_HOST", "127.0.0.1"),
         local_server_port=int(credentials.get("LOCAL_SERVER_PORT", "8765")),
-        agy_cli_path=credentials.get("AGY_CLI_PATH", "agy"),
+        agy_cli_path=_resolve_cli_path(credentials.get("AGY_CLI_PATH", "agy")),
         agy_default_model=credentials.get("AGY_DEFAULT_MODEL", "gemini-3.8-flash-low"),
         agy_effort=credentials.get("AGY_EFFORT", "").lower(),
-        hermes_cli_path=credentials.get("HERMES_CLI_PATH", "hermes"),
+        hermes_cli_path=_resolve_cli_path(credentials.get("HERMES_CLI_PATH", "hermes")),
         hermes_default_model=credentials.get("HERMES_DEFAULT_MODEL", ""),
         hermes_effort=credentials.get("HERMES_EFFORT", "").lower(),
-        claudecode_cli_path=credentials.get("CLAUDE_CLI_PATH", "claude"),
+        claudecode_cli_path=_resolve_cli_path(credentials.get("CLAUDE_CLI_PATH", "claude")),
         claudecode_default_model=credentials.get("CLAUDE_DEFAULT_MODEL", ""),
         claudecode_effort=credentials.get("CLAUDE_EFFORT", "").lower(),
         log_level=credentials.get("LOG_LEVEL", "INFO").upper(),
