@@ -119,8 +119,11 @@ class ClaudeCodeCLIProvider(APIProvider):
         if not prompt_text:
             raise APIError("Empty prompt for claude", provider=self.name)
 
-        # Effort maps to claude --effort: low|medium|high|xhigh|max
-        effort = options.get("effort") or settings.claudecode_effort
+        # Effort maps to claude --effort: low|medium|high|xhigh|max.
+        # Default to low explicitly: ~/.claude/settings.json has effortLevel
+        # "high" (thinking model), which made bot chats slow. Always send a
+        # flag so the user-config high never leaks into Telegram runs.
+        effort = options.get("effort") or settings.claudecode_effort or "low"
         if effort:
             effort = effort.lower()
             if effort not in CLAUDE_EFFORTS:

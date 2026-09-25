@@ -117,8 +117,11 @@ class HermesCLIProvider(APIProvider):
         if not prompt_text:
             raise APIError("Empty prompt for hermes", provider=self.name)
 
-        # Effort maps to --reasoning: none|minimal|low|medium|high|xhigh|max|ultra
-        effort = options.get("effort") or settings.hermes_effort
+        # Effort maps to --reasoning: none|minimal|low|medium|high|xhigh|max|ultra.
+        # Default to low explicitly: ~/.hermes/config.yaml has
+        # agent.reasoning_effort "high" (thinking model), which made bot chats
+        # slow. Always send a flag so user-config high never leaks in.
+        effort = options.get("effort") or settings.hermes_effort or "low"
         effort_arg = f"--reasoning={effort}" if effort else ""
 
         self._last_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
