@@ -124,13 +124,18 @@ class ProgressService:
         if hm_info:
             sections.append(hermes_local.format_local_hermes(hm_info))
 
-        # Screenshot target #1: the CLI terminal window that is generating.
-        # Switching workspaces is the Hyprland equivalent of switching tabs,
-        # so the photo shows the hermes/claude terminal the user asked about.
+        # Screenshot target #1: the CLI terminal window, whenever a local
+        # session exists — GENERATING gets priority over IDLE, and a
+        # generating CLI beats the browser. Switching workspaces is the
+        # Hyprland equivalent of switching tabs.
         cli_shot = None
         if hm_info and hm_info["status"] == "GENERATING":
             cli_shot = await screenshot_cli_window("hermes")
         if not cli_shot and cl_info and cl_info["status"] == "GENERATING":
+            cli_shot = await screenshot_cli_window("claude")
+        if not cli_shot and hm_info:
+            cli_shot = await screenshot_cli_window("hermes")
+        if not cli_shot and cl_info:
             cli_shot = await screenshot_cli_window("claude")
 
         # 4. Browser backend: every open AI tab, one section each.

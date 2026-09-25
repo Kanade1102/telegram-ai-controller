@@ -94,7 +94,9 @@ def test_progress_never_merges_provider_names():
     assert text.count("*Status:*") == 2
     assert "GENERATING" in text
     assert "IDLE" in text
-    assert info["screenshot_path"] is None
+    # CLI session exists -> a CLI workspace shot is attempted; fake env has no
+    # hyprctl window match, so it stays None here (real desktop returns a path).
+    assert info["screenshot_path"] is None or info["screenshot_path"].endswith(".png")
 
 
 def test_progress_screenshots_generating_tab():
