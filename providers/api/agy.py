@@ -145,13 +145,19 @@ class AgyCLIProvider(APIProvider):
 
         # stream-json yields NDJSON events with incremental text_delta chunks
         # and real usage metadata (never fabricated).
-        proc = await asyncio.create_subprocess_exec(
-            self.cli_path,
+        args = [
             f"--print={prompt_text}",
             f"--model={chosen_model}",
             f"--print-timeout={AGY_TURN_TIMEOUT}s",
             "--output-format=stream-json",
-            *((f"--effort={effort}",) if effort else ()),
+        ]
+        native_session_id = options.get("native_session_id")
+        if native_session_id:
+            args += ["--conversation", str(native_session_id)]
+        if effort:
+            args += [f"--effort={effort}"]
+        proc = await asyncio.create_subprocess_exec(
+            self.cli_path, *args,
             stdout=asyncio.subprocess.PIPE,
             # Never PIPE stderr — an unread full buffer blocks agy mid-stream.
             stderr=asyncio.subprocess.DEVNULL,

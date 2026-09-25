@@ -56,6 +56,22 @@ def test_session_state_save_and_reload(tmp_path: Path):
     assert mgr2.state.last_status == "IDLE"
 
 
+def test_native_session_persistence_and_provider_change_clears_it(tmp_path: Path):
+    state_file = tmp_path / "state.json"
+    stub = StubDB()
+    mgr = SessionManager(state_file=state_file, database=stub)
+    mgr.set_native_session("hermes", "20260924_111308_df377c")
+
+    mgr2 = SessionManager(state_file=state_file, database=stub)
+    assert mgr2.state.active_provider == "hermes"
+    assert mgr2.state.active_native_provider == "hermes"
+    assert mgr2.state.active_native_session_id == "20260924_111308_df377c"
+
+    mgr2.set_provider("claudecode")
+    assert mgr2.state.active_native_session_id is None
+    assert "active_native_session_id" not in stub.vals
+
+
 def test_provider_mode_automatic_switch(tmp_path: Path):
     mgr, _ = make_mgr(tmp_path)
 

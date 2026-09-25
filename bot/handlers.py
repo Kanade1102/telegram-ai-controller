@@ -17,6 +17,7 @@ from bot.security import restricted
 from services.session_manager import session_manager
 from services.model_manager import model_manager
 from services.conversation_manager import conversation_manager
+from services.native_sessions import list_native_sessions
 from services.task_manager import task_manager, TaskStatus
 from services.fallback_manager import fallback_manager
 from services.progress import progress_service
@@ -104,7 +105,7 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "• `/use <id|name>` — Select active browser tab\n\n"
         "*API Conversations*\n"
         "• `/conversations` — List saved API threads\n"
-        "• `/resume [number]` — List chat history numbered, resume by number\n"
+        "• `/resume [number]` — List bot + CLI sessions, continue by number\n"
         "• `/newchat <name>` — Create a new API conversation\n"
         "• `/usechat <id>` — Select conversation thread\n"
         "• `/renamechat <id> <name>` — Rename conversation\n"
@@ -670,52 +671,83 @@ async def handle_conversations(update: Update, context: ContextTypes.DEFAULT_TYP
 
 @restricted
 async def handle_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Resume a saved conversation. Bare /resume lists history numbered from 1;
-    /resume <number> switches to that conversation (number = position in list)."""
-    convs = conversation_manager.list_conversations()
-    if not convs:
-        await update.effective_message.reply_text(
-            "No saved conversations yet. Start one with `/newchat <name>`."
-        )
-        return
-
-    # 1. No argument: show numbered history
+    """List and resume bot chats plus native Hermes, Claude and AGY sessions."""
     if not context.args:
-        active_id = session_manager.state.active_conversation_id
-        lines = ["💬 *Chat History*\n"]
-        for i, c in enumerate(convs, 1):
-            tag = " *(active)*" if c["id"] == active_id else ""
-            lines.append(
-                f"{i}: *{c['name']}*{tag}\n"
-                f"   Provider: {c['provider']} | Model: `{c['model']}`"
+        choices: list[dict[str, Any]] = []
+        for c in conversation_manager.list_conversations(limit=100):
+            choices.append({
+                "kind": "bot",
+                "provider": c["provider"],
+                "session_id": str(c["id"]),
+                "title": c["name"],
+                "model": c["model"],
+                "current": c["id"] == session_manager.state.active_conversation_id
+                and not session_manager.state.active_native_session_id,
+            })
+        choices.extend(list_native_sessions())
+        provider_order = {"hermes": 0, "claudecode": 1, "agy": 2}
+        choices.sort(key=lambda item: provider_order.get(item["provider"], 10))
+        context.user_data["resume_choices"] = choices
+
+        if not choices:
+            await update.effective_message.reply_text("No saved sessions found.")
+            return
+
+        labels = {"hermes": "Hermes", "claudecode": "Claude Code", "agy": "AGY"}
+        lines = ["Resume sessions"]
+        previous_provider = None
+        for i, item in enumerate(choices, 1):
+            provider = item["provider"]
+            if provider != previous_provider:
+                lines += ["", f"[{labels.get(provider, provider)}]"]
+                previous_provider = provider
+            selected = (
+                item["kind"] == "native"
+                and provider == session_manager.state.active_native_provider
+                and item["session_id"] == session_manager.state.active_native_session_id
             )
-        lines.append("\nResume with: `/resume <number>`")
-        await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+            tag = " [SELECTED]" if selected else " [CURRENT]" if item.get("current") else ""
+            detail = f" · {item.get('time', '')}" if item.get("time") else ""
+            lines.append(f"{i}. {item['title'][:90]}{tag}{detail}\n   {item['session_id']}")
+        lines += ["", "Choose: /resume <number>"]
+
+        # Telegram max is 4096 chars; split only between session entries.
+        chunk = ""
+        for line in lines:
+            candidate = f"{chunk}\n{line}" if chunk else line
+            if len(candidate) > 3900:
+                await update.effective_message.reply_text(chunk)
+                chunk = line
+            else:
+                chunk = candidate
+        if chunk:
+            await update.effective_message.reply_text(chunk)
         return
 
-    # 2. Argument: switch by 1-based position
     if not context.args[0].isdigit():
-        await update.effective_message.reply_text("Usage: `/resume` to list, `/resume <number>` to resume.")
+        await update.effective_message.reply_text("Usage: /resume to list, /resume <number> to resume.")
         return
 
+    choices = context.user_data.get("resume_choices") or []
     n = int(context.args[0])
-    if n < 1 or n > len(convs):
-        await update.effective_message.reply_text(
-            f"❌ Number {n} not in history (1-{len(convs)}). Use `/resume` to see the list."
-        )
+    if n < 1 or n > len(choices):
+        await update.effective_message.reply_text("Selection expired or invalid. Run /resume again.")
         return
 
-    conv = convs[n - 1]
-    session_manager.set_conversation(conv["id"])
-    session_manager.set_provider(conv["provider"])
-    model_manager.set_selected_model(conv["provider"], conv["model"])
+    item = choices[n - 1]
+    if item["kind"] == "bot":
+        conv_id = int(item["session_id"])
+        session_manager.set_conversation(conv_id)
+        session_manager.set_provider(item["provider"])
+        model_manager.set_selected_model(item["provider"], item["model"])
+    else:
+        session_manager.set_native_session(item["provider"], item["session_id"])
 
     await update.effective_message.reply_text(
-        f"✅ Resumed conversation:\n\n"
-        f"#{conv['id']}: *{conv['name']}*\n"
-        f"Provider: {conv['provider']}\n"
-        f"Model: `{conv['model']}`",
-        parse_mode=ParseMode.MARKDOWN
+        f"Resumed {item['provider']} session\n\n"
+        f"{item['title']}\n"
+        f"ID: {item['session_id']}\n\n"
+        "Your next message continues this session."
     )
 
 
@@ -964,16 +996,28 @@ async def execute_api_prompt(update: Update, prompt_text: str, image_path: Optio
         else:
             target_providers = [state.active_provider] + candidates
 
-    # Ensure conversation exists
+    # Ensure conversation exists (bot DB is still used for Telegram-side logs).
+    native_resume = (
+        state.active_native_session_id
+        if state.active_native_provider == state.active_provider
+        else None
+    )
+    if native_resume:
+        target_providers = [state.active_provider]  # never resume this ID on another provider
     conv_id = state.active_conversation_id
     if not conv_id:
         new_conv = conversation_manager.create_conversation("New Chat", state.active_provider, model_manager.get_selected_model(state.active_provider))
         conv_id = new_conv["id"]
-        session_manager.set_conversation(conv_id)
+        session_manager.set_conversation(conv_id, clear_native=not bool(native_resume))
 
-    # Save user message
+    # Native CLI resumes already own their full history. Send only the new turn;
+    # folding the bot DB history would duplicate or contaminate that session.
     conversation_manager.add_user_message(conv_id, prompt_text)
-    history = conversation_manager.get_history_for_api(conv_id)
+    history = (
+        [{"role": "user", "content": prompt_text}]
+        if native_resume
+        else conversation_manager.get_history_for_api(conv_id)
+    )
 
     initial_msg: Optional[Any] = None
     last_error: Optional[Exception] = None
@@ -1027,6 +1071,8 @@ async def execute_api_prompt(update: Update, prompt_text: str, image_path: Optio
                 send_opts["effort"] = state.active_effort
             if image_path:
                 send_opts["image_path"] = image_path
+            if native_resume:
+                send_opts["native_session_id"] = native_resume
             async for chunk in api_prov.send_message(history, model=model_name, stream=True, **send_opts):
                 if task.cancel_requested:
                     cancelled = True

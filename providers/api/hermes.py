@@ -145,6 +145,10 @@ class HermesCLIProvider(APIProvider):
             "--max-turns", "4",
             "--run-budget", "300",
         ]
+        # Continue an actual Hermes session selected by /resume.
+        native_session_id = options.get("native_session_id")
+        if native_session_id:
+            args += ["--resume", str(native_session_id)]
         # Vision: --image attaches a local image to the query.
         image_path = options.get("image_path")
         if image_path:

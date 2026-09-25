@@ -147,6 +147,9 @@ class ClaudeCodeCLIProvider(APIProvider):
             # Safety net: even pure chat can loop on edge cases.
             "--max-turns", "2",
         ]
+        native_session_id = options.get("native_session_id")
+        if native_session_id:
+            args += ["--resume", str(native_session_id)]
         if model and model not in ("idk", "default"):
             args += ["--model", model]
         if effort:

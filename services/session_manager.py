@@ -21,6 +21,8 @@ class SessionState:
     active_provider: str = "chatgpt_web"
     active_browser_tab_id: Optional[str] = None
     active_conversation_id: Optional[int] = None
+    active_native_provider: Optional[str] = None
+    active_native_session_id: Optional[str] = None
     active_fallback_chain: Optional[str] = None
     active_effort: Optional[str] = None  # None = model default; else low|medium|high
     last_prompt: str = ""
@@ -48,6 +50,8 @@ class SessionManager:
                         active_provider=data.get("active_provider", "chatgpt_web"),
                         active_browser_tab_id=data.get("active_browser_tab_id"),
                         active_conversation_id=data.get("active_conversation_id"),
+                        active_native_provider=data.get("active_native_provider"),
+                        active_native_session_id=data.get("active_native_session_id"),
                         active_fallback_chain=data.get("active_fallback_chain"),
                         active_effort=data.get("active_effort"),
                         last_prompt=data.get("last_prompt", ""),
@@ -72,6 +76,11 @@ class SessionManager:
         saved_effort = self.db.get_session_val("active_effort")
         if saved_effort:
             self.state.active_effort = saved_effort
+        saved_native_provider = self.db.get_session_val("active_native_provider")
+        saved_native_session = self.db.get_session_val("active_native_session_id")
+        if saved_native_provider and saved_native_session:
+            self.state.active_native_provider = saved_native_provider
+            self.state.active_native_session_id = saved_native_session
 
     def save_state(self) -> None:
         """Persist session state to state.json and DB."""
@@ -90,6 +99,8 @@ class SessionManager:
             self.db.set_session_val("active_mode", self.state.active_mode)
             if self.state.active_conversation_id is not None:
                 self.db.set_session_val("active_conversation_id", str(self.state.active_conversation_id))
+            else:
+                self.db.delete_session_val("active_conversation_id")
             if self.state.active_fallback_chain is not None:
                 self.db.set_session_val("active_fallback_chain", self.state.active_fallback_chain)
             else:
@@ -98,11 +109,20 @@ class SessionManager:
                 self.db.set_session_val("active_effort", self.state.active_effort)
             else:
                 self.db.delete_session_val("active_effort")
+            if self.state.active_native_provider and self.state.active_native_session_id:
+                self.db.set_session_val("active_native_provider", self.state.active_native_provider)
+                self.db.set_session_val("active_native_session_id", self.state.active_native_session_id)
+            else:
+                self.db.delete_session_val("active_native_provider")
+                self.db.delete_session_val("active_native_session_id")
         except Exception as e:
             logger.error("Failed to sync session state to DB: %s", e)
 
     def set_provider(self, provider: str) -> None:
         self.state.active_provider = provider
+        if self.state.active_native_provider != provider:
+            self.state.active_native_provider = None
+            self.state.active_native_session_id = None
         if "_web" in provider:
             self.state.active_mode = "browser"
         else:
@@ -113,8 +133,19 @@ class SessionManager:
         self.state.active_mode = mode
         self.save_state()
 
-    def set_conversation(self, conv_id: int) -> None:
+    def set_conversation(self, conv_id: int, clear_native: bool = True) -> None:
         self.state.active_conversation_id = conv_id
+        if clear_native:
+            self.state.active_native_provider = None
+            self.state.active_native_session_id = None
+        self.save_state()
+
+    def set_native_session(self, provider: str, session_id: str) -> None:
+        self.state.active_provider = provider
+        self.state.active_mode = "api"
+        self.state.active_conversation_id = None
+        self.state.active_native_provider = provider
+        self.state.active_native_session_id = session_id
         self.save_state()
 
     def set_browser_tab(self, tab_id: str) -> None:
