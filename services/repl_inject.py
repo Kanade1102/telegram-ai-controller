@@ -74,7 +74,7 @@ async def inject_prompt_into_repl(prompt_text: str) -> bool:
     if ws is not None:
         proc = await asyncio.create_subprocess_exec(
             "hyprctl", "eval",
-            f"hl.dispatch(hl.dsp.focus({{ workspace = {int(ws)} }}))",
+            f"return hl.dispatch(hl.dsp.focus({{ workspace = {int(ws)} }}))",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )

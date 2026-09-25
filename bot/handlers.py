@@ -1144,21 +1144,20 @@ async def execute_api_prompt(update: Update, prompt_text: str, image_path: Optio
     # Native hermes resume + live desktop REPL: type the prompt INTO the
     # user's open hermes window instead of spawning a one-shot. The REPL owns
     # the session context (memory, skills, history) — that IS the continue.
-    if (
-        native_resume
-        and state.active_provider == "hermes"
-        and not image_path
-    ):
-        from services.repl_inject import inject_prompt_into_repl
+    # Gated on the live REPL window, not just /resume: any plain-text prompt
+    # to hermes lands in the open CLI when it exists.
+    if state.active_provider == "hermes" and not image_path:
+        from services.repl_inject import find_hermes_window, inject_prompt_into_repl
 
         try:
-            if await inject_prompt_into_repl(prompt_text):
-                conversation_manager.add_user_message(conv_id, prompt_text)
-                await update.effective_message.reply_text(
-                    "⌨️ Prompt typed into the hermes CLI window. "
-                    "Its reply appears there; /progress to watch, /shot to see it."
-                )
-                return
+            if await find_hermes_window() is not None:
+                if await inject_prompt_into_repl(prompt_text):
+                    conversation_manager.add_user_message(conv_id, prompt_text)
+                    await update.effective_message.reply_text(
+                        "⌨️ Prompt typed into the hermes CLI window. "
+                        "Its reply appears there; /progress to watch, /shot to see it."
+                    )
+                    return
         except Exception as e:
             logger.warning("REPL injection failed, falling back to one-shot: %s", e)
 
@@ -1479,14 +1478,15 @@ async def handle_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def handle_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     args = context.args
-    interval = 15
+    interval = 60
     if args and args[0].isdigit():
-        interval = max(10, int(args[0]))  # Minimum 10 seconds to avoid Telegram spam
+        interval = max(60, int(args[0]))  # Minimum 60 seconds: Telegram flood-limits faster sends
 
     if chat_id in WATCH_TASKS and not WATCH_TASKS[chat_id].done():
         WATCH_TASKS[chat_id].cancel()
 
     async def watch_loop():
+        watch_msg_id: Optional[int] = None
         try:
             await update.effective_message.reply_text(
                 f"⏱️ Auto-watch enabled. Progress updates will be sent every {interval}s while AI is active.\n"
@@ -1498,12 +1498,28 @@ async def handle_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 # desktop must not move just because the watcher is running.
                 info = await progress_service.get_progress(with_screenshot=False)
                 status = info.get("status", "UNKNOWN")
-                # Send update if GENERATING
-                if status == ProgressState.GENERATING.value:
-                    text = info.get("text", "")
-                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+                text = info.get("text", "").strip()
+                if status == ProgressState.GENERATING.value and text:
+                    # One message per watch, edited in place: fresh messages
+                    # every tick hit Telegram's flood limit (HTTP 429).
+                    # Plain text — progress output is arbitrary and can break
+                    # MARKDOWN entity parsing mid-loop.
+                    if watch_msg_id is None:
+                        sent = await context.bot.send_message(chat_id=chat_id, text=text)
+                        watch_msg_id = sent.message_id
+                    else:
+                        try:
+                            await context.bot.edit_message_text(
+                                chat_id=chat_id, message_id=watch_msg_id, text=text
+                            )
+                        except Exception:
+                            # "message is not modified" or edit race — harmless
+                            pass
+                elif watch_msg_id is not None:
+                    # Generation finished: leave the final text, stop touching it.
+                    watch_msg_id = None
         except asyncio.CancelledError:
-            pass
+            raise
         except Exception as e:
             logger.error("Watch loop error: %s", e)
 
