@@ -846,12 +846,25 @@ async def handle_photo_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # Download best-quality photo to a scratch file.
+    # Download best-quality photo, then compress: vision prefill time on the
+    # 9Router route scales with image bytes. 512px JPEG keeps text readable
+    # and cuts first-token latency roughly in half vs the raw Telegram photo.
     try:
         photo_file = await msg.photo[-1].get_file()
+        raw_path = settings.screenshot_dir / f"tg_img_raw_{update.effective_user.id}_{int(time.time())}.jpg"
         img_path = settings.screenshot_dir / f"tg_img_{update.effective_user.id}_{int(time.time())}.jpg"
         img_path.parent.mkdir(parents=True, exist_ok=True)
-        await photo_file.download_to_drive(custom_path=str(img_path))
+        await photo_file.download_to_drive(custom_path=str(raw_path))
+        try:
+            from PIL import Image
+            im = Image.open(raw_path)
+            im.thumbnail((512, 512))
+            im.convert("RGB").save(img_path, "JPEG", quality=72)
+            raw_path.unlink(missing_ok=True)
+        except Exception:
+            # PIL missing or bad image: fall back to the raw download.
+            logger.warning("Image compression failed, using raw photo", exc_info=True)
+            img_path = raw_path
     except Exception as e:
         logger.warning("Photo download failed: %s", e)
         await msg.reply_text("❌ Could not download the photo. Try again.")

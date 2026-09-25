@@ -74,6 +74,12 @@ class ProgressService:
             page = active_session["page"]
             provider = active_session["provider"]
             title = active_session["title"]
+            # Switch to this provider's tab before capturing, so the screenshot
+            # always shows the tab whose progress we are reporting.
+            try:
+                await page.bring_to_front()
+            except Exception as e:
+                logger.debug("Could not focus tab for screenshot: %s", e)
             shot_path = await screenshot_service.capture(page=page)
             try:
                 status = await provider.get_status(page)
