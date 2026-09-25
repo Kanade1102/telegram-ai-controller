@@ -11,7 +11,10 @@ always shows the provider whose progress the user asked about.
 """
 
 import logging
-from typing import Any
+import asyncio
+import json
+import shutil
+from typing import Any, Optional
 from browser.manager import browser_manager
 from browser.detector import ProgressState, get_provider_display_name
 from services.screenshot import screenshot_service
@@ -22,6 +25,58 @@ from services import claude_local
 from services import hermes_local
 
 logger = logging.getLogger(__name__)
+
+
+def pick_hypr_window(clients: list[dict], title_part: str) -> Optional[dict]:
+    """Find a Hyprland client window whose title contains title_part."""
+    for c in clients:
+        if title_part in (c.get("title") or "").lower():
+            return c
+    return None
+
+
+async def _focus_workspace(ws_id: int) -> bool:
+    """Focus a Hyprland workspace via hyprctl eval (dots-hyprland Lua dispatcher)."""
+    if not shutil.which("hyprctl"):
+        return False
+    code = f"hl.dispatch(hl.dsp.focus({{ workspace = {int(ws_id)} }}))"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "hyprctl", "eval", code,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=5)
+        return True
+    except Exception as e:
+        logger.debug("hyprctl workspace focus failed: %s", e)
+        return False
+
+
+async def screenshot_cli_window(title_part: str) -> Optional[str]:
+    """Switch to the workspace of the terminal window running title_part
+    (e.g. 'hermes' or 'claude') and capture the screen with grim."""
+    if not shutil.which("hyprctl"):
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "hyprctl", "clients", "-j",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        clients = json.loads(out or b"[]")
+    except Exception as e:
+        logger.debug("hyprctl clients failed: %s", e)
+        return None
+    win = pick_hypr_window(clients, title_part)
+    if not win:
+        return None
+    ws = (win.get("workspace") or {}).get("id")
+    if ws is not None:
+        await _focus_workspace(ws)
+        await asyncio.sleep(0.8)  # let the workspace switch render
+    return await screenshot_service.capture(page=None, force_mode="desktop")
 
 
 class ProgressService:
@@ -69,6 +124,15 @@ class ProgressService:
         if hm_info:
             sections.append(hermes_local.format_local_hermes(hm_info))
 
+        # Screenshot target #1: the CLI terminal window that is generating.
+        # Switching workspaces is the Hyprland equivalent of switching tabs,
+        # so the photo shows the hermes/claude terminal the user asked about.
+        cli_shot = None
+        if hm_info and hm_info["status"] == "GENERATING":
+            cli_shot = await screenshot_cli_window("hermes")
+        if not cli_shot and cl_info and cl_info["status"] == "GENERATING":
+            cli_shot = await screenshot_cli_window("claude")
+
         # 4. Browser backend: every open AI tab, one section each.
         #    Screenshot target = the tab that is GENERATING; else active tab.
         sessions = []
@@ -114,12 +178,15 @@ class ProgressService:
 
         # Screenshot: switch to the target provider's tab before capturing so
         # the photo always shows the tab whose progress is being reported.
-        if shot_target:
+        # A CLI shot wins: the desktop is already showing the CLI terminal.
+        if shot_target and not cli_shot:
             try:
                 await shot_target["page"].bring_to_front()
             except Exception as e:
                 logger.debug("Could not focus tab for screenshot: %s", e)
             shot_path = await screenshot_service.capture(page=shot_target["page"])
+        elif cli_shot:
+            shot_path = cli_shot
 
         # 5. Fallback: nothing running anywhere.
         if not sections:
