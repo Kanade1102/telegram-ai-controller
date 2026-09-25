@@ -76,6 +76,33 @@ async def main_async() -> None:
     # 3. Build Telegram bot application
     bot_app = build_bot_app()
 
+    # Hermes REPL approval bridge: hermes plugin POSTs flagged-command
+    # requests to /api/approval; the bot posts y/n buttons to Telegram.
+    from services.hermes_approval_bridge import hermes_bridge
+
+    async def post_hermes_approval(payload: dict) -> None:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        rid = payload["rid"]
+        cmd = str(payload.get("command") or "")[:500]
+        desc = str(payload.get("description") or "")[:300]
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Allow", callback_data=f"hperm:{rid}:y"),
+            InlineKeyboardButton("⛔ Deny", callback_data=f"hperm:{rid}:n"),
+        ]])
+        for user_id in settings.telegram_allowed_users:
+            try:
+                await bot_app.bot.send_message(
+                    user_id,
+                    "🔐 *Hermes wants to run a flagged command*\n\n"
+                    f"```\n{cmd}\n```\n_{desc}_\n\nAllow?",
+                    reply_markup=keyboard,
+                )
+            except Exception as e:
+                logger.warning("Failed to post hermes approval to %s: %s", user_id, e)
+
+    hermes_bridge.set_poster(post_hermes_approval)
+
     # Graceful shutdown handler
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()

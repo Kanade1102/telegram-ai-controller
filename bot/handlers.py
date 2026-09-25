@@ -47,6 +47,15 @@ def extract_prompt_text(full_text: str) -> str:
     return ""
 
 
+def md_escape(text: str) -> str:
+    """Escape Telegram MARKDOWN metacharacters in dynamic text (provider
+    names, model names) — an unescaped '_' breaks entity parsing and kills
+    the whole message with BadRequest."""
+    return str(text).translate(str.maketrans({
+        "_": r"\_", "*": r"\*", "[": r"\[", "`": r"\`",
+    }))
+
+
 def truncate_response(text: str) -> str:
     """Keep Telegram messages under the 4096-char limit without cutting mid-word."""
     if not text:
@@ -95,7 +104,8 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "• `/model <model-id|alias>` — Set model for active provider\n"
         "• `/effort [low|medium|high|off]` — Reasoning effort (AGY)\n\n"
         "*Claude Code Agent*\n"
-        "• `/agent [on|off]` — Tool use + Telegram y/n relay\n\n"
+        "• `/agent [on|off]` — Tool use + Telegram y/n relay\n"
+        "• Hermes REPL approvals also arrive as Telegram y/n\n\n"
         "*Prompts & Generation*\n"
         "• Chat directly — just send a message, no command needed\n"
         "• `/progress` — Check active activity & screenshot\n"
@@ -132,10 +142,10 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         tab_providers = {s["provider_key"] for s in ai_tabs}
         for b_key, b_prov in BROWSER_PROVIDERS.items():
             icon = "✅" if b_key in tab_providers else "🔴"
-            browser_lines.append(f"{b_prov.friendly_name} {icon}")
+            browser_lines.append(f"{md_escape(b_prov.friendly_name)} {icon}")
     else:
         for b_key, b_prov in BROWSER_PROVIDERS.items():
-            browser_lines.append(f"{b_prov.friendly_name} ⚪")
+            browser_lines.append(f"{md_escape(b_prov.friendly_name)} ⚪")
     browser_accs = "\n".join(browser_lines) or "No browser providers"
 
     # API providers: cached startup health (no live calls here; /health does live)
@@ -150,7 +160,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             icon = "✅"
         elif a_prov.name in health_cache:
             icon = "🔴"
-        api_lines.append(f"{a_prov.friendly_name} {icon}")
+        api_lines.append(f"{md_escape(a_prov.friendly_name)} {icon}")
     api_provs = "\n".join(api_lines) or "No API providers"
 
     # Active conversation name
@@ -194,11 +204,11 @@ async def handle_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             health_cache[prov.name] = (success, h.get("message", ""), h.get("latency_ms", 0.0))
             icon = "✅" if success else "🔴"
             latency = f"{h['latency_ms']:.0f} ms" if h["latency_ms"] > 0 else "N/A"
-            lines.append(f"*{prov.friendly_name}*")
+            lines.append(f"*{md_escape(prov.friendly_name)}*")
             lines.append(f"{icon} {h['status']} ({latency})\n")
         except Exception as e:
             health_cache[prov.name] = (False, str(e), 0.0)
-            lines.append(f"*{prov.friendly_name}*\n🔴 Error: {e}\n")
+            lines.append(f"*{md_escape(prov.friendly_name)}*\n🔴 Error: {e}\n")
 
     # Browser status
     cdp_conn = await browser_manager.is_connected()
@@ -316,10 +326,10 @@ async def handle_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         tab_providers = {s["provider_key"] for s in ai_tabs}
         for k, p in BROWSER_PROVIDERS.items():
             icon = "🟢" if k in tab_providers else "🔴"
-            browser_lines.append(f"{icon} {p.friendly_name} (`{k}`)")
+            browser_lines.append(f"{icon} {md_escape(p.friendly_name)} (`{k}`)")
     else:
         for k, p in BROWSER_PROVIDERS.items():
-            browser_lines.append(f"⚪ {p.friendly_name} (`{k}`)")
+            browser_lines.append(f"⚪ {md_escape(p.friendly_name)} (`{k}`)")
 
     api_lines = []
     for p in list_api_providers():
@@ -331,7 +341,7 @@ async def handle_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             local_url = "127.0.0.1" in getattr(p, "base_url", "") or "localhost" in getattr(p, "base_url", "")
             if no_key and not local_url and p.name != "agy" and p.name != "hermes" and p.name != "claudecode":
                 icon = "🔴"
-        api_lines.append(f"{icon} {p.friendly_name} (`{p.name}`)")
+        api_lines.append(f"{icon} {md_escape(p.friendly_name)} (`{p.name}`)")
 
     current_m = model_manager.get_selected_model(state.active_provider)
 
@@ -408,7 +418,7 @@ async def handle_provider(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     current_model = model_manager.get_selected_model(prov.name)
 
     await update.effective_message.reply_text(
-        f"✅ Active provider switched to: *{prov.friendly_name}*\n"
+        f"✅ Active provider switched to: *{md_escape(prov.friendly_name)}*\n"
         f"Mode: `{session_manager.state.active_mode.upper()}`\n"
         f"Model: `{current_model or 'default'}`",
         parse_mode=ParseMode.MARKDOWN
@@ -457,7 +467,7 @@ async def handle_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if is_logged_in:
         session_manager.set_provider(prov_name)
         await status_msg.edit_text(
-            f"✅ *{prov.friendly_name}* is already logged in and ready!\n"
+            f"✅ *{md_escape(prov.friendly_name)}* is already logged in and ready!\n"
             f"Registered as active session: `{prov_name}`",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -560,7 +570,7 @@ async def handle_models(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             models_text += f"\n\n_...and {len(models) - 40} more models._"
 
         msg = (
-            f"📋 *Models for {prov.friendly_name}* ({len(models)} available)\n\n"
+            f"📋 *Models for {md_escape(prov.friendly_name)}* ({len(models)} available)\n\n"
             f"{models_text}\n\n"
             f"Select with: `/model <model-id>`"
         )
@@ -591,7 +601,7 @@ async def handle_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             session_manager.set_provider(prov_obj.name)
             model_manager.set_selected_model(prov_obj.name, model_part)
             await update.effective_message.reply_text(
-                f"✅ Switched to *{prov_obj.friendly_name}*\nModel set to:\n`{model_part}`",
+                f"✅ Switched to *{md_escape(prov_obj.friendly_name)}*\nModel set to:\n`{model_part}`",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -935,16 +945,17 @@ async def handle_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 @restricted
 async def handle_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Inline y/n button for a pending claude tool approval."""
+    """Inline y/n button for a pending claude (perm:) or hermes REPL
+    (hperm:) approval."""
     query = update.callback_query
     if not query:
         return
     data = query.data or ""
     parts = data.split(":", 2)
-    if len(parts) < 3 or parts[0] != "perm":
+    if len(parts) < 3 or parts[0] not in ("perm", "hperm"):
         await query.answer("Unknown action.")
         return
-    # parts = ["perm", request_id, y|n]
+    # parts = ["perm"|"hperm", request_id, y|n]
     request_id = parts[1]
     decision = parts[2]
 
@@ -953,7 +964,12 @@ async def handle_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     allowed = decision == "y"
-    ok = await permission_relay.answer(request_id, allowed)
+    if parts[0] == "hperm":
+        from services.hermes_approval_bridge import hermes_bridge
+
+        ok = await hermes_bridge.answer(request_id, "once" if allowed else "deny")
+    else:
+        ok = await permission_relay.answer(request_id, allowed)
     if ok:
         await query.answer("✅ Allowed" if allowed else "⛔ Denied")
         try:
@@ -1124,6 +1140,27 @@ async def execute_api_prompt(update: Update, prompt_text: str, image_path: Optio
         new_conv = conversation_manager.create_conversation("New Chat", state.active_provider, model_manager.get_selected_model(state.active_provider))
         conv_id = new_conv["id"]
         session_manager.set_conversation(conv_id, clear_native=not bool(native_resume))
+
+    # Native hermes resume + live desktop REPL: type the prompt INTO the
+    # user's open hermes window instead of spawning a one-shot. The REPL owns
+    # the session context (memory, skills, history) — that IS the continue.
+    if (
+        native_resume
+        and state.active_provider == "hermes"
+        and not image_path
+    ):
+        from services.repl_inject import inject_prompt_into_repl
+
+        try:
+            if await inject_prompt_into_repl(prompt_text):
+                conversation_manager.add_user_message(conv_id, prompt_text)
+                await update.effective_message.reply_text(
+                    "⌨️ Prompt typed into the hermes CLI window. "
+                    "Its reply appears there; /progress to watch, /shot to see it."
+                )
+                return
+        except Exception as e:
+            logger.warning("REPL injection failed, falling back to one-shot: %s", e)
 
     # Native CLI resumes already own their full history. Send only the new turn;
     # folding the bot DB history would duplicate or contaminate that session.

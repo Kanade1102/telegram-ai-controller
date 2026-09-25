@@ -80,8 +80,9 @@ def build_bot_app() -> Application:
     app.add_handler(CommandHandler("fallback", handle_fallback))
     app.add_handler(CommandHandler("agent", handle_agent))
 
-    # Claude permission relay: inline y/n buttons answer can_use_tool requests.
-    app.add_handler(CallbackQueryHandler(handle_perm_callback, pattern=r"^perm:"))
+    # Claude + hermes REPL permission relay: inline y/n buttons answer
+    # can_use_tool requests (claude) and approval-transport requests (hermes).
+    app.add_handler(CallbackQueryHandler(handle_perm_callback, pattern=r"^(perm|hperm):"))
 
     # Chat without /prompt: any plain text message is a prompt.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_prompt))

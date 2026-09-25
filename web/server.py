@@ -140,10 +140,24 @@ async def handle_api_status(request: web.Request) -> web.Response:
     })
 
 
+async def handle_approval_request(request: web.Request) -> web.Response:
+    """POST from the hermes approval-transport plugin. Resolves when the
+    Telegram user taps y/n (via services.hermes_approval_bridge)."""
+    try:
+        payload = await request.json()
+    except Exception:
+        return web.json_response({"choice": "deny"}, status=400)
+    from services.hermes_approval_bridge import hermes_bridge
+
+    choice, _note = await hermes_bridge.submit(payload)
+    return web.json_response({"choice": choice})
+
+
 def create_web_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", handle_api_status)
+    app.router.add_post("/api/approval", handle_approval_request)
     return app
 
 
