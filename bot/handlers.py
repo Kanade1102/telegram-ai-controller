@@ -824,6 +824,47 @@ async def handle_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # ==============================================================================
 
 @restricted
+async def handle_photo_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Photo + optional caption = prompt with image attached."""
+    msg = update.effective_message
+    if not msg or not msg.photo:
+        return
+    caption = (msg.caption or "").strip()
+    state = session_manager.state
+    prov_name = state.active_provider
+
+    if "_web" in prov_name or state.active_mode == "browser":
+        await msg.reply_text("⚠️ Image chat not supported in browser mode. Switch with `/api` and pick an API provider.")
+        return
+
+    # Only hermes CLI supports --image right now.
+    if prov_name != "hermes":
+        await msg.reply_text(
+            f"⚠️ *{get_provider_display_name(prov_name)}* has no vision on this route. "
+            "Image chat only works with `hermes` (supports --image).",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    # Download best-quality photo to a scratch file.
+    try:
+        photo_file = await msg.photo[-1].get_file()
+        img_path = settings.screenshot_dir / f"tg_img_{update.effective_user.id}_{int(time.time())}.jpg"
+        img_path.parent.mkdir(parents=True, exist_ok=True)
+        await photo_file.download_to_drive(custom_path=str(img_path))
+    except Exception as e:
+        logger.warning("Photo download failed: %s", e)
+        await msg.reply_text("❌ Could not download the photo. Try again.")
+        return
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    prompt_text = caption or "Describe this image."
+    session_manager.record_prompt(f"[photo] {prompt_text}", now_iso)
+
+    await execute_api_prompt(update, prompt_text, image_path=str(img_path))
+
+
+@restricted
 async def handle_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     raw_text = update.effective_message.text if update.effective_message else ""
     raw_text = raw_text or ""
@@ -894,7 +935,7 @@ async def execute_browser_prompt(update: Update, prompt_text: str) -> None:
         )
 
 
-async def execute_api_prompt(update: Update, prompt_text: str) -> None:
+async def execute_api_prompt(update: Update, prompt_text: str, image_path: Optional[str] = None) -> None:
     """Execute prompt through direct API with streaming and throttled updates."""
     state = session_manager.state
     target_providers = [state.active_provider]
@@ -971,6 +1012,8 @@ async def execute_api_prompt(update: Update, prompt_text: str) -> None:
             send_opts: dict[str, Any] = {}
             if state.active_effort:
                 send_opts["effort"] = state.active_effort
+            if image_path:
+                send_opts["image_path"] = image_path
             async for chunk in api_prov.send_message(history, model=model_name, stream=True, **send_opts):
                 if task.cancel_requested:
                     cancelled = True

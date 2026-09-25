@@ -145,6 +145,10 @@ class HermesCLIProvider(APIProvider):
             "--max-turns", "4",
             "--run-budget", "300",
         ]
+        # Vision: --image attaches a local image to the query.
+        image_path = options.get("image_path")
+        if image_path:
+            args += ["--image", image_path]
         if model and model not in ("idk", "default"):
             args += [f"--model={model}"]
         if effort_arg:

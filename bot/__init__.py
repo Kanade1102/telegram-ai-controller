@@ -28,6 +28,7 @@ from bot.handlers import (
     handle_deletechat,
     handle_fallback,
     handle_prompt,
+    handle_photo_prompt,
     handle_progress,
     handle_shot,
     handle_last,
@@ -78,6 +79,8 @@ def build_bot_app() -> Application:
 
     # Chat without /prompt: any plain text message is a prompt.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_prompt))
+    # Photos with optional caption text: routed to providers with vision.
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_prompt))
 
     app.add_handler(CommandHandler("progress", handle_progress))
     app.add_handler(CommandHandler("shot", handle_shot))
