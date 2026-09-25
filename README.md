@@ -306,3 +306,15 @@ The test suite covers security, command parsing, multiline preservation, fallbac
 source .venv/bin/activate
 pytest -v tests/
 ```
+
+---
+
+## 🙏 Credits & Contributors
+
+- **kurovu146** ([GitHub](https://github.com/kurovu146)) — base repository and Telegram bot idea.
+- **@sinectrea** (Telegram) — DeepSeek API testing and support.
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE).
+
