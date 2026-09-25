@@ -18,6 +18,7 @@ from services.session_manager import session_manager
 from services.model_manager import model_manager
 from services.conversation_manager import conversation_manager
 from services.native_sessions import list_native_sessions
+from services.permission_relay import permission_relay
 from services.task_manager import task_manager, TaskStatus
 from services.fallback_manager import fallback_manager
 from services.progress import progress_service
@@ -93,6 +94,8 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "• `/models [provider] [refresh]` — List models for provider\n"
         "• `/model <model-id|alias>` — Set model for active provider\n"
         "• `/effort [low|medium|high|off]` — Reasoning effort (AGY)\n\n"
+        "*Claude Code Agent*\n"
+        "• `/agent [on|off]` — Tool use + Telegram y/n relay\n\n"
         "*Prompts & Generation*\n"
         "• Chat directly — just send a message, no command needed\n"
         "• `/progress` — Check active activity & screenshot\n"
@@ -862,6 +865,75 @@ async def handle_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # ==============================================================================
+# CLAUDE PERMISSION RELAY CALLBACKS
+# ==============================================================================
+
+@restricted
+async def handle_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggle claudecode agent mode (tool use + Telegram y/n relay).
+
+    /agent      -> show state
+    /agent off  -> pure chat, no tools, no prompts
+    /agent on   -> tools on, every command gated by y/n
+    """
+    args = context.args
+    cur_off = bool(context.user_data.get("agent_off"))
+    if not args:
+        await update.effective_message.reply_text(
+            f"Claude Code agent mode: `{'OFF (pure chat)' if cur_off else 'ON (tools + y/n relay)'}`\n"
+            "Change with `/agent on` or `/agent off`."
+        )
+        return
+    val = args[0].lower().strip()
+    if val in ("on", "enable"):
+        context.user_data["agent_off"] = False
+        await update.effective_message.reply_text(
+            "✅ Agent mode ON. Claude may run Bash/Read/Edit/Write — every command "
+            "waits for your y/n."
+        )
+    elif val in ("off", "disable"):
+        context.user_data["agent_off"] = True
+        await update.effective_message.reply_text(
+            "✅ Agent mode OFF. Pure chat, no tool calls, no permission prompts."
+        )
+    else:
+        await update.effective_message.reply_text("Usage: `/agent on` or `/agent off`")
+
+
+@restricted
+async def handle_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Inline y/n button for a pending claude tool approval."""
+    query = update.callback_query
+    if not query:
+        return
+    data = query.data or ""
+    parts = data.split(":", 2)
+    if len(parts) < 3 or parts[0] != "perm":
+        await query.answer("Unknown action.")
+        return
+    # parts = ["perm", request_id, y|n]
+    request_id = parts[1]
+    decision = parts[2]
+
+    if decision not in ("y", "n"):
+        await query.answer("Unknown decision.")
+        return
+
+    allowed = decision == "y"
+    ok = await permission_relay.answer(request_id, allowed)
+    if ok:
+        await query.answer("✅ Allowed" if allowed else "⛔ Denied")
+        try:
+            await query.edit_message_text(
+                f"{'✅ ALLOWED' if allowed else '⛔ DENIED'} — {query.message.text if query.message else ''}"
+            )
+        except Exception:
+            pass
+    else:
+        await query.answer("Already answered.")
+
+
+# ==============================================================================
 # PROMPT EXECUTION & STREAMING
 # ==============================================================================
 
@@ -1069,6 +1141,30 @@ async def execute_api_prompt(update: Update, prompt_text: str, image_path: Optio
                 conversation_id=conv_id
             )
 
+            # Claude CLI agent runs: route every tool approval through a
+            # Telegram y/n prompt. Never auto-approve.
+            if prov_name == "claudecode":
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+                async def post_permission(rid: str, tool_name: str, tool_input: dict[str, Any]) -> None:
+                    desc = str(tool_input.get("description") or tool_input.get("command") or "?")
+                    if len(desc) > 500:
+                        desc = desc[:497] + "..."
+                    keyboard = InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("✅ Allow", callback_data=f"perm:{rid}:y"),
+                            InlineKeyboardButton("⛔ Deny", callback_data=f"perm:{rid}:n"),
+                        ]
+                    ])
+                    await update.effective_message.reply_text(
+                        f"🔐 Claude wants to run `{tool_name}`\n\n"
+                        f"```\n{desc}\n```\n"
+                        "Allow?",
+                        reply_markup=keyboard,
+                    )
+
+                api_prov.on_permission = post_permission
+
             # Stream response
             collected_text = ""
             last_edit_time = time.time()
@@ -1083,6 +1179,10 @@ async def execute_api_prompt(update: Update, prompt_text: str, image_path: Optio
                 send_opts["image_path"] = image_path
             if native_resume:
                 send_opts["native_session_id"] = native_resume
+            # Claude Code: agent mode + permission relay on by default.
+            # /agent off disables tool use for plain chat.
+            if prov_name == "claudecode":
+                send_opts["agent"] = not bool(context.user_data.get("agent_off"))
             async for chunk in api_prov.send_message(history, model=model_name, stream=True, **send_opts):
                 if task.cancel_requested:
                     cancelled = True

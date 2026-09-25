@@ -1,7 +1,7 @@
 """Telegram bot setup and handler registration."""
 
 import logging
-from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config import settings
 from bot.handlers import (
     handle_start,
@@ -27,6 +27,8 @@ from bot.handlers import (
     handle_renamechat,
     handle_deletechat,
     handle_fallback,
+    handle_agent,
+    handle_perm_callback,
     handle_prompt,
     handle_photo_prompt,
     handle_progress,
@@ -76,6 +78,10 @@ def build_bot_app() -> Application:
     app.add_handler(CommandHandler("deletechat", handle_deletechat))
 
     app.add_handler(CommandHandler("fallback", handle_fallback))
+    app.add_handler(CommandHandler("agent", handle_agent))
+
+    # Claude permission relay: inline y/n buttons answer can_use_tool requests.
+    app.add_handler(CallbackQueryHandler(handle_perm_callback, pattern=r"^perm:"))
 
     # Chat without /prompt: any plain text message is a prompt.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_prompt))

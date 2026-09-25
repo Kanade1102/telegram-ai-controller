@@ -30,6 +30,7 @@ COMMANDS = [
     ("models", "List provider models"),
     ("model", "Select model"),
     ("effort", "Set reasoning effort"),
+    ("agent", "Claude tools + y/n relay on/off"),
     ("progress", "Check AI progress"),
     ("shot", "Screenshot active tab/desktop"),
     ("last", "Latest AI response"),
