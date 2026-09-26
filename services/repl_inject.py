@@ -102,13 +102,18 @@ async def inject_prompt_into_repl(prompt_text: str) -> bool:
         return False
 
     # -k = type (press+release) the named key; -s = ms delay before it.
+    # Key name must be xkb "Return" — "enter" is an unknown key (exit 1).
     try:
         proc = await asyncio.create_subprocess_exec(
-            "wtype", "-k", "enter",
+            "wtype", "-k", "Return",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
         await asyncio.wait_for(proc.communicate(), timeout=INJECT_TIMEOUT_S)
     except (asyncio.TimeoutError, Exception):
-        return True  # text landed; enter is best-effort
+        logger.warning("wtype Return tap failed — prompt pasted but NOT sent")
+        return False
+    if proc.returncode != 0:
+        logger.warning("wtype Return tap exit %s — prompt pasted but NOT sent", proc.returncode)
+        return False
     return True
